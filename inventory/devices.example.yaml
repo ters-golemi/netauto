@@ -1,0 +1,62 @@
+# Copy to devices.yaml and edit. Safe to commit: no secrets here.
+#
+# Each device names a `credentials` prefix. Secrets are read from the
+# environment at connect time, so a device with prefix CORE_SW needs
+# CORE_SW_USERNAME and CORE_SW_PASSWORD exported before you connect.
+
+devices:
+  # --- Cisco -------------------------------------------------------------
+  - name: core-sw-01
+    platform: cisco_ios          # cisco_ios | cisco_xe | cisco_nxos | cisco_xr
+    host: 10.0.0.11
+    credentials: CORE_SW         # CORE_SW_USERNAME, CORE_SW_PASSWORD,
+    tags: [campus, core]         # optional CORE_SW_ENABLE_PASSWORD
+
+  - name: dc-leaf-01
+    platform: cisco_nxos
+    host: 10.10.0.21
+    credentials: DC_FABRIC
+    tags: [datacentre, leaf]
+
+  # --- Juniper -----------------------------------------------------------
+  - name: edge-rtr-01
+    platform: juniper_junos
+    host: 10.0.0.1
+    credentials: EDGE_RTR
+    tags: [wan, edge]
+
+  # --- HPE Aruba ---------------------------------------------------------
+  - name: access-sw-01
+    platform: aruba_aoscx
+    host: 10.0.1.10
+    credentials: ARUBA_SW
+    api_version: "10.09"
+    tags: [campus, access]
+
+  - name: legacy-sw-01
+    platform: aruba_osswitch     # AOS-Switch / ProCurve, over SSH
+    host: 10.0.1.20
+    credentials: ARUBA_LEGACY
+    tags: [campus, access]
+
+  - name: aruba-central
+    platform: aruba_central      # a cloud tenant, not a box
+    credentials: CENTRAL         # CENTRAL_CLIENT_ID, CENTRAL_CLIENT_SECRET
+    base_url: https://apigw-eucentral3.central.arubanetworks.com
+    tags: [cloud]
+
+  # --- Cloud-managed -----------------------------------------------------
+  - name: meraki-org
+    platform: meraki             # an organization; Meraki has no device CLI
+    credentials: MERAKI          # MERAKI_API_KEY
+    org_id: "123456"             # omit if the key sees exactly one org
+    tags: [cloud, branch]
+
+  # --- Fortinet ----------------------------------------------------------
+  - name: fw-edge-01
+    platform: fortinet_fortios   # REST API; prefers FW_EDGE_API_TOKEN
+    host: 10.0.0.254
+    credentials: FW_EDGE
+    vdom: root
+    verify_tls: true
+    tags: [security, edge]

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "netauto": {
+      "command": "$HOME/Work/netauto/.venv/bin/python",
+      "args": ["-m", "netauto.mcp_server"],
+      "env": {
+        "PYTHONPATH": "$HOME/Work/netauto"
+      }
+    }
+  }
+}

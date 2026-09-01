@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Real inventory and settings may carry internal hostnames and addressing.
+config.yaml
+inventory/devices.yaml
+
+# Captured configs are sensitive.
+baselines/
+*.cfg

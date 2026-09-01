@@ -1,0 +1,12 @@
+# Copy to config.yaml. Holds no secrets -- those live in the environment.
+
+inventory_path: inventory/devices.yaml
+
+# The safety switch. No driver in this toolkit implements a commit path, so
+# turning this on changes nothing today; it exists so that any future write
+# support is opt-in rather than default.
+allow_writes: false
+
+connect_timeout: 30
+command_timeout: 60
+max_concurrency: 8
