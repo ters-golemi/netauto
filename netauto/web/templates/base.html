@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Netauto{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128225;</text></svg>">
+</head>
+<body>
+{% if request.session.get('user') %}
+<header class="topbar">
+  <a class="brand" href="/">Netauto<span class="ver">{{ version }}</span></a>
+  <nav>
+    <a href="/devices" class="{{ 'on' if nav == 'devices' }}">Devices</a>
+    <a href="/audit" class="{{ 'on' if nav == 'audit' }}">Audit</a>
+    <a href="/discover" class="{{ 'on' if nav == 'discover' }}">Discover</a>
+  </nav>
+  <form method="post" action="/logout" class="logout">
+    <button type="submit" class="linkish">Sign out</button>
+  </form>
+</header>
+{% endif %}
+<main class="{% block main_class %}shell{% endblock %}">
+  {% block content %}{% endblock %}
+</main>
+<footer class="foot">
+  <span>Read-only. This interface cannot change device configuration.</span>
+</footer>
+</body>
+</html>

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set nav = 'audit' %}
+{% block title %}Audit — Netauto{% endblock %}
+{% block content %}
+<h1>Compliance audit</h1>
+<form class="inline" method="get">
+  <label for="tg">Group</label>
+  <select id="tg" name="tag">
+    <option value="">— choose a tag —</option>
+    {% for t in tags %}<option value="{{ t }}" {{ 'selected' if t == tag }}>{{ t }}</option>{% endfor %}
+  </select>
+  <span class="or">or</span>
+  <input name="device" value="{{ device }}" placeholder="single device name" autocomplete="off">
+  <button type="submit" class="primary">Run audit</button>
+</form>
+<p class="note">Connects to each device, retrieves the running configuration and
+   applies rules scoped to that platform's own syntax.</p>
+
+{% if error %}<div class="alert block"><p>{{ error }}</p></div>{% endif %}
+
+{% if ran %}
+<div class="tiles small">
+  <div class="tile"><span class="num">{{ totals.devices }}</span><span class="lbl">Audited</span></div>
+  <div class="tile bad"><span class="num">{{ totals.fail }}</span><span class="lbl">Failures</span></div>
+  <div class="tile good"><span class="num">{{ totals['pass'] }}</span><span class="lbl">Passes</span></div>
+  <div class="tile warn"><span class="num">{{ totals.errors }}</span><span class="lbl">Unreachable</span></div>
+</div>
+
+{% for r in results %}
+<section class="result">
+  <h2>{{ r.device }} <code>{{ r.platform }}</code></h2>
+  {% if r.error %}
+    <div class="alert block"><strong>Not audited.</strong><p>{{ r.error }}</p>
+      <p class="note">An unreachable device is not a passing device.</p></div>
+  {% else %}
+    <div class="tablewrap">
+    <table class="data grid">
+      <thead><tr><th>Rule</th><th>Severity</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody>
+      {% for f in r.findings %}
+        <tr class="{{ 'row-fail' if f.status == 'fail' }}">
+          <td><code>{{ f.rule_id }}</code> {{ f.title }}</td>
+          <td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td>
+          <td><span class="status {{ f.status }}">{{ f.status }}</span></td>
+          <td>
+            {{ f.detail }}
+            {% if f.evidence %}<div class="evidence">{% for e in f.evidence %}<code>{{ e }}</code>{% endfor %}</div>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

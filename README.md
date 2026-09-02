@@ -74,6 +74,36 @@ Three subagents:
 - **network-documenter** — inventories and baselines keyed to hardware rather
   than to leased addresses.
 
+## Web GUI
+
+A self-hosted browser interface so a team can use the toolkit without the CLI.
+It runs *inside* the network it manages -- it needs reachability to the gear and
+holds the device credentials in its own environment.
+
+```bash
+export NETAUTO_WEB_PASSWORD='<shared team password>'
+export NETAUTO_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
+export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
+./run-web.sh
+```
+
+Pages: overview, device list, per-device facts and running config, a read-only
+command box, compliance audit by group, and ARP discovery.
+
+**Access control.** One shared password, checked in constant time, with signed
+`HttpOnly` `SameSite=Strict` session cookies, CSRF tokens on the login form and
+a five-attempt lockout per client address. The server refuses to start without
+`NETAUTO_WEB_PASSWORD`, because anyone who reaches it can read device
+configuration.
+
+**It serves plain HTTP.** On a shared network the team password and the configs
+cross the wire in clear text. For anything beyond a trusted management VLAN, put
+it behind a reverse proxy with TLS and set `https_only=True` on the session
+middleware in `netauto/web/app.py`.
+
+**Still read-only.** A test asserts the only POST routes in the whole
+application are `/login` and `/logout`; every device route is a GET that reads.
+
 ## Platforms and transports
 
 | Platform string | Transport | Library |

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% set nav = 'devices' %}
+{% block title %}{{ name }} — Netauto{% endblock %}
+{% block content %}
+<p class="crumb"><a href="/devices">Devices</a> / {{ name }}</p>
+<h1>{{ name }}</h1>
+
+{% if error %}<div class="alert block"><strong>Could not reach the device.</strong><p>{{ error }}</p></div>{% endif %}
+
+{% if facts %}
+<section>
+  <h2>Facts</h2>
+  <table class="data kv">
+    <tbody>
+    {% for k, v in facts.items() %}
+      <tr><td class="k">{{ k.replace('_',' ') }}</td><td>{{ v if v is not none else '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Run a read-only command</h2>
+  <form class="inline" method="get">
+    <input name="show" value="{{ show }}" placeholder="show ip interface brief"
+           spellcheck="false" autocomplete="off">
+    <button type="submit" class="primary">Run</button>
+  </form>
+  <p class="note">Checked against a per-vendor allowlist. Anything that could change
+     state, or chain a second command, is refused before connecting.</p>
+  {% if cmd_error %}<div class="alert block"><strong>Refused.</strong><p>{{ cmd_error }}</p></div>{% endif %}
+  {% if cmd_output is not none %}<pre class="output">{{ cmd_output }}</pre>{% endif %}
+</section>
+{% endif %}
+
+{% if config %}
+<section>
+  <h2>Running configuration <span class="count">{{ config.splitlines()|length }} lines</span></h2>
+  <pre class="output tall">{{ config }}</pre>
+</section>
+{% endif %}
+{% endblock %}

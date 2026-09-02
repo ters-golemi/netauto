@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Sign in — Netauto{% endblock %}
+{% block main_class %}centre{% endblock %}
+{% block content %}
+<form class="card login" method="post" action="/login">
+  <h1>Netauto</h1>
+  <p class="sub">Multi-vendor network automation, read-only.</p>
+  {% if error %}<p class="alert">{{ error }}</p>{% endif %}
+  <label for="pw">Team password</label>
+  <input id="pw" name="password_input" type="password" autocomplete="current-password"
+         autofocus required>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit" class="primary">Sign in</button>
+</form>
+{% endblock %}

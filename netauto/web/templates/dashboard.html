@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% set nav = 'home' %}
+{% block content %}
+<h1>Overview</h1>
+{% if error %}
+  <div class="alert block">
+    <strong>No inventory loaded.</strong>
+    <p>{{ error }}</p>
+  </div>
+{% else %}
+<div class="tiles">
+  <div class="tile"><span class="num">{{ devices|length }}</span><span class="lbl">Devices</span></div>
+  <div class="tile"><span class="num">{{ families|length }}</span><span class="lbl">Vendor families</span></div>
+  <div class="tile"><span class="num">{{ tags|length }}</span><span class="lbl">Tags</span></div>
+  <div class="tile"><span class="num">{{ platforms|length }}</span><span class="lbl">Platforms supported</span></div>
+</div>
+
+<div class="cols">
+  <section>
+    <h2>By vendor family</h2>
+    {% if families %}
+    <table class="data">
+      <tbody>
+      {% for fam, n in families|dictsort %}
+        <tr><td class="k">{{ fam }}</td><td class="n">{{ n }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No devices in inventory.</p>{% endif %}
+  </section>
+
+  <section>
+    <h2>Groups</h2>
+    {% if tags %}
+    <ul class="chips">
+      {% for t, n in tags %}
+        <li><a href="/devices?tag={{ t }}">{{ t }} <span>{{ n }}</span></a></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muted">No tags defined.</p>{% endif %}
+  </section>
+</div>
+{% endif %}
+
+<section>
+  <h2>Supported platforms</h2>
+  <ul class="chips plain">
+    {% for p in platforms %}<li><code>{{ p }}</code></li>{% endfor %}
+  </ul>
+</section>
+{% endblock %}

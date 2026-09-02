@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% set nav = 'discover' %}
+{% block title %}Discover — Netauto{% endblock %}
+{% block content %}
+<h1>Discover hosts</h1>
+<form class="inline" method="get">
+  <input name="cidr" value="{{ cidr }}" placeholder="192.168.1.0/24" required autocomplete="off">
+  <input name="interface" value="{{ interface }}" placeholder="interface (optional)" autocomplete="off">
+  <button type="submit" class="primary">Sweep</button>
+</form>
+<p class="note">ARP sweep of a directly attached segment. Hosts answer ARP even when
+   they drop ICMP, so this finds more than a ping sweep — but only on networks this
+   server is physically attached to.</p>
+
+{% if error %}<div class="alert block"><p>{{ error }}</p></div>{% endif %}
+
+{% if hosts %}
+<p class="filterbar">{{ hosts|length }} hosts on <code>{{ cidr }}</code></p>
+<div class="tablewrap">
+<table class="data grid">
+  <thead><tr><th>Address</th><th>Hardware</th><th>Vendor</th></tr></thead>
+  <tbody>
+  {% for h in hosts %}
+    <tr><td class="strong">{{ h.ip }}</td><td><code>{{ h.mac }}</code></td><td>{{ h.vendor or '—' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% elif cidr and not error %}
+<p class="muted">No hosts answered on {{ cidr }}.</p>
+{% endif %}
+{% endblock %}

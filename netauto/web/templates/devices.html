@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% set nav = 'devices' %}
+{% block title %}Devices — Netauto{% endblock %}
+{% block content %}
+<h1>Devices</h1>
+{% if tag or platform %}
+  <p class="filterbar">Filtered by
+    {% if tag %}tag <code>{{ tag }}</code>{% endif %}
+    {% if platform %}platform <code>{{ platform }}</code>{% endif %}
+    <a href="/devices">clear</a>
+  </p>
+{% endif %}
+{% if error %}
+  <div class="alert block"><strong>No inventory loaded.</strong><p>{{ error }}</p></div>
+{% elif not devices %}
+  <p class="muted">No devices match.</p>
+{% else %}
+<div class="tablewrap">
+<table class="data grid">
+  <thead><tr><th>Name</th><th>Platform</th><th>Family</th><th>Host</th><th>Tags</th><th></th></tr></thead>
+  <tbody>
+  {% for d in devices %}
+    <tr>
+      <td class="strong">{{ d.name }}</td>
+      <td><code>{{ d.platform }}</code></td>
+      <td>{{ family_of(d.platform) }}</td>
+      <td>{{ d.host or '—' }}</td>
+      <td>{% for t in d.tags %}<span class="tag">{{ t }}</span>{% endfor %}</td>
+      <td class="right"><a class="btn" href="/devices/{{ d.name }}">Inspect</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="note">Inspecting a device opens a live connection using credentials from
+this server's environment.</p>
+{% endif %}
+{% endblock %}
