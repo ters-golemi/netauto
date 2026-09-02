@@ -1,0 +1,32 @@
+# Direct dependencies for netauto, with the versions this was built and
+# tested against. Prefer this over requirements.txt for a fresh install:
+# requirements.txt is an exact freeze from Python 3.14 and will fight a
+# different interpreter. Verified to parse on Python 3.10 through 3.12.
+
+# Device transports
+napalm>=5.2.0
+netmiko>=4.7.0
+nornir>=3.6.0
+scrapli>=2026.2.20
+paramiko>=4.0.0
+
+# Vendor SDKs
+pyaoscx>=2.6.0
+pycentral>=1.4.3
+meraki>=4.4.0
+fortiosapi>=1.0.5
+
+# MCP server
+mcp>=2.1.1
+
+# Web GUI
+fastapi>=0.141.1
+uvicorn>=0.52.4
+jinja2>=3.1.6
+itsdangerous>=2.2.0
+python-multipart>=0.0.32
+bcrypt>=5.0.0
+
+# Support
+PyYAML>=6.0.3
+deepdiff>=9.1.0

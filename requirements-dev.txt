@@ -1,0 +1,4 @@
+# Test dependencies. Needed to run the suite; not needed to run the service.
+-r requirements-app.txt
+pytest>=8.0
+httpx>=0.28          # used by fastapi's TestClient

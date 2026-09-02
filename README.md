@@ -7,6 +7,11 @@ changes. It has no commit path.
 Covers Cisco (IOS, IOS-XE, NX-OS, IOS-XR), Juniper Junos, Arista EOS,
 HPE Aruba (AOS-CX, AOS-Switch, Central), Cisco Meraki and Fortinet FortiOS.
 
+## Installing
+
+For a server install on Ubuntu — service user, systemd, TLS, firewall — follow
+[INSTALL.md](INSTALL.md). The quick start below is for a workstation.
+
 ## Quick start
 
 ```bash
