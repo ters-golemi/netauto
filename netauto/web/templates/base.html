@@ -8,14 +8,18 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128225;</text></svg>">
 </head>
 <body>
-{% if request.session.get('user') %}
+{% if user %}
 <header class="topbar">
   <a class="brand" href="/">Netauto<span class="ver">{{ version }}</span></a>
   <nav>
     <a href="/devices" class="{{ 'on' if nav == 'devices' }}">Devices</a>
     <a href="/audit" class="{{ 'on' if nav == 'audit' }}">Audit</a>
     <a href="/discover" class="{{ 'on' if nav == 'discover' }}">Discover</a>
+    {% if is_admin %}<a href="/activity" class="{{ 'on' if nav == 'activity' }}">Activity</a>{% endif %}
   </nav>
+  <span class="who" title="{{ 'administrator' if is_admin else 'standard account' }}">
+    {{ user }}{% if is_admin %}<span class="badge">admin</span>{% endif %}
+  </span>
   <form method="post" action="/logout" class="logout">
     <button type="submit" class="linkish">Sign out</button>
   </form>
@@ -25,7 +29,8 @@
   {% block content %}{% endblock %}
 </main>
 <footer class="foot">
-  <span>Read-only. This interface cannot change device configuration.</span>
+  <span>Read-only. This interface cannot change device configuration.{% if user %}
+    Actions are recorded against your account.{% endif %}</span>
 </footer>
 </body>
 </html>

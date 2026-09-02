@@ -81,24 +81,52 @@ It runs *inside* the network it manages -- it needs reachability to the gear and
 holds the device credentials in its own environment.
 
 ```bash
-export NETAUTO_WEB_PASSWORD='<shared team password>'
+.venv/bin/python -m netauto.web.manage add adis --admin    # first account
 export NETAUTO_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(48))')"
 export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 ./run-web.sh
 ```
 
 Pages: overview, device list, per-device facts and running config, a read-only
-command box, compliance audit by group, and ARP discovery.
+command box, compliance audit by group, ARP discovery, and an activity log.
 
-**Access control.** One shared password, checked in constant time, with signed
-`HttpOnly` `SameSite=Strict` session cookies, CSRF tokens on the login form and
-a five-attempt lockout per client address. The server refuses to start without
-`NETAUTO_WEB_PASSWORD`, because anyone who reaches it can read device
-configuration.
+### Accounts
 
-**It serves plain HTTP.** On a shared network the team password and the configs
-cross the wire in clear text. For anything beyond a trusted management VLAN, put
-it behind a reverse proxy with TLS and set `https_only=True` on the session
+Per-user, so every action is attributable. Accounts live in `users.yaml` as
+bcrypt hashes at `0600`; the file is re-read on each lookup, so adding or
+removing a user takes effect without a restart.
+
+```bash
+python -m netauto.web.manage add <name> [--admin]
+python -m netauto.web.manage list
+python -m netauto.web.manage passwd <name>
+python -m netauto.web.manage remove <name>
+python -m netauto.web.manage admin <name> [--revoke]
+```
+
+Passwords are prompted for, never passed as arguments, so they stay out of
+shell history and the process table. Minimum length is 10 characters, and the
+last admin cannot be removed. Admins can read the activity log; standard
+accounts cannot.
+
+### Activity log
+
+Every device-touching action is appended to `activity.log` as JSON lines with
+the account that made it -- logins, failed logins, device inspections, commands
+run, commands refused, audits and discovery sweeps. Greppable directly, or
+viewable at `/activity` by an admin.
+
+### Access control
+
+Bcrypt verification with a dummy comparison for unknown users so response time
+does not reveal which accounts exist. Signed `HttpOnly` `SameSite=Strict`
+session cookies, a CSRF token on the login form, and a five-attempt lockout
+keyed to *(client address, username)* -- so locking out one account cannot lock
+out the team.
+
+**It serves plain HTTP.** On a shared network, passwords and retrieved configs
+cross the wire in clear text. For anything beyond a trusted management VLAN,
+put it behind a reverse proxy with TLS and set `https_only=True` on the session
 middleware in `netauto/web/app.py`.
 
 **Still read-only.** A test asserts the only POST routes in the whole

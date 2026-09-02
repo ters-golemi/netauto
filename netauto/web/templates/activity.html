@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set nav = 'activity' %}
+{% block title %}Activity — Netauto{% endblock %}
+{% block content %}
+<h1>Activity</h1>
+<p class="note">Every device-touching action, attributed to the account that made
+   it. Append-only JSON lines at <code>{{ log_path }}</code> — this page shows the
+   most recent 200 entries.</p>
+
+<h2>Accounts <span class="count">{{ accounts|length }}</span></h2>
+<ul class="chips plain">
+  {% for a in accounts %}
+    <li><code>{{ a.name }}</code>{% if a.admin %}<span class="badge inline">admin</span>{% endif %}</li>
+  {% endfor %}
+</ul>
+<p class="note">Managed with <code>python -m netauto.web.manage</code>; changes take
+   effect without restarting the server.</p>
+
+<h2>Recent actions</h2>
+{% if not entries %}
+  <p class="muted">Nothing recorded yet.</p>
+{% else %}
+<div class="tablewrap">
+<table class="data grid">
+  <thead><tr><th>When</th><th>Account</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+  <tbody>
+  {% for e in entries %}
+    <tr class="{{ 'row-fail' if e.action in ('login-failed','command-refused') }}">
+      <td class="nowrap"><code>{{ e.ts }}</code></td>
+      <td class="strong">{{ e.user }}</td>
+      <td><span class="act {{ e.action }}">{{ e.action }}</span></td>
+      <td>{{ e.target or '—' }}</td>
+      <td class="detail">{{ e.detail or '' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

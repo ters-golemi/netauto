@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Not permitted — Netauto{% endblock %}
+{% block content %}
+<h1>Not permitted</h1>
+<div class="alert block">
+  <strong>The activity log is restricted to administrators.</strong>
+  <p>You are signed in as <code>{{ user }}</code>, which is a standard account.</p>
+  <p class="note">An administrator can grant access with
+     <code>python -m netauto.web.manage admin {{ user }}</code>.</p>
+</div>
+<p><a class="btn" href="/">Back to overview</a></p>
+{% endblock %}

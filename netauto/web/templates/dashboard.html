@@ -42,6 +42,24 @@
 </div>
 {% endif %}
 
+{% if is_admin and recent %}
+<section>
+  <h2>Recent activity <a class="more" href="/activity">view all</a></h2>
+  <table class="data">
+    <tbody>
+    {% for e in recent %}
+      <tr>
+        <td class="k nowrap"><code>{{ e.ts }}</code></td>
+        <td class="strong">{{ e.user }}</td>
+        <td>{{ e.action }}</td>
+        <td>{{ e.target or '' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
 <section>
   <h2>Supported platforms</h2>
   <ul class="chips plain">

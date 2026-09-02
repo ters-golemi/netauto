@@ -10,3 +10,7 @@ inventory/devices.yaml
 # Captured configs are sensitive.
 baselines/
 *.cfg
+
+# Accounts and activity log are per-deployment.
+users.yaml
+activity.log

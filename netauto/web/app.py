@@ -1,9 +1,11 @@
 """FastAPI application serving the netauto GUI.
 
 Read-only throughout: the routes here call the same drivers the MCP server
-uses, and there is no route that writes to a device. Anyone who reaches this
-server can read device configuration, so it requires a session for every page
-and is meant to run on an internal network, never on a public address.
+uses, and there is no route that writes to a device. Accounts are per-user so
+that every device-touching action is attributable in the activity log.
+
+Anyone with an account can read device configuration, so this is meant to run
+on an internal network, never on a public address.
 """
 
 from __future__ import annotations
@@ -22,39 +24,34 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
-from netauto import __version__, diffing
+from netauto import __version__
 from netauto.audit import audit_device
 from netauto.drivers import supported_platforms
 from netauto.drivers.base import platform_family
 from netauto.errors import NetautoError
 from netauto.session import connect, load_context
+from netauto.web import activity
+from netauto.web.users import UserStore
 
 HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
 
-#: Login throttle: (failures, first_failure_at) keyed by client address.
-_FAILURES: dict[str, tuple[int, float]] = {}
+#: Login throttle keyed by (client address, username).
+_FAILURES: dict[tuple[str, str], tuple[int, float]] = {}
 MAX_FAILURES = 5
 LOCKOUT_SECONDS = 300
 
 
-def _require_env(name: str, *, generate_ok: bool = False) -> str:
-    value = os.environ.get(name)
-    if value:
-        return value
-    if generate_ok:
-        return secrets.token_urlsafe(48)
-    raise RuntimeError(
-        f"{name} is not set. The web GUI serves device configuration, so it "
-        f"refuses to start without one. Export it and restart:\n"
-        f"    export {name}='...'"
-    )
-
-
-def create_app() -> FastAPI:
-    password = _require_env("NETAUTO_WEB_PASSWORD")
-    # A generated key is fine for a single process; sessions drop on restart.
-    secret_key = _require_env("NETAUTO_SECRET_KEY", generate_ok=True)
+def create_app(users: UserStore | None = None) -> FastAPI:
+    store = users or UserStore()
+    if not store.list():
+        raise RuntimeError(
+            f"No accounts exist in {store.path}. The GUI serves device "
+            f"configuration and will not start without one.\n"
+            f"Create the first account:\n"
+            f"    .venv/bin/python -m netauto.web.manage add <name> --admin"
+        )
+    secret_key = os.environ.get("NETAUTO_SECRET_KEY") or secrets.token_urlsafe(48)
 
     app = FastAPI(title="Netauto", docs_url=None, redoc_url=None)
     app.add_middleware(
@@ -69,8 +66,11 @@ def create_app() -> FastAPI:
 
     # -- helpers ---------------------------------------------------------
 
-    def authed(request: Request) -> bool:
-        return bool(request.session.get("user"))
+    def current_user(request: Request) -> str | None:
+        return request.session.get("user")
+
+    def is_admin(request: Request) -> bool:
+        return bool(request.session.get("admin"))
 
     def csrf(request: Request) -> str:
         token = request.session.get("csrf")
@@ -87,54 +87,80 @@ def create_app() -> FastAPI:
         return templates.TemplateResponse(
             request=request,
             name=name,
-            context={"version": __version__, "csrf_token": csrf(request), **ctx},
+            context={
+                "version": __version__,
+                "csrf_token": csrf(request),
+                "user": current_user(request),
+                "is_admin": is_admin(request),
+                **ctx,
+            },
         )
 
     def login_redirect() -> RedirectResponse:
         return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
 
-    def throttled(key: str) -> int:
+    def client_addr(request: Request) -> str:
+        return request.client.host if request.client else "unknown"
+
+    def throttled(key: tuple[str, str]) -> int:
         count, first = _FAILURES.get(key, (0, 0.0))
         if count >= MAX_FAILURES and time.time() - first < LOCKOUT_SECONDS:
             return int(LOCKOUT_SECONDS - (time.time() - first))
         return 0
 
+    def log(request: Request, action: str, target: str = "", detail: str = "") -> None:
+        activity.record(current_user(request) or "anonymous", action, target, detail)
+
     # -- auth ------------------------------------------------------------
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
-        if authed(request):
+        if current_user(request):
             return RedirectResponse("/", status_code=HTTP_303_SEE_OTHER)
-        return page(request, "login.html", error=None)
+        return page(request, "login.html", error=None, username="")
 
     @app.post("/login", response_class=HTMLResponse)
-    def login(request: Request, password_input: str = Form(""), csrf_token: str = Form("")):
-        key = request.client.host if request.client else "unknown"
+    def login(request: Request, username: str = Form(""),
+              password_input: str = Form(""), csrf_token: str = Form("")):
+        username = username.strip().lower()
+        key = (client_addr(request), username)
         wait = throttled(key)
         if wait:
-            return page(request, "login.html",
+            return page(request, "login.html", username=username,
                         error=f"Too many attempts. Try again in {wait} seconds.")
         if not csrf_ok(request, csrf_token):
-            return page(request, "login.html", error="Session expired. Try again.")
-        if hmac.compare_digest(password_input, password):
+            return page(request, "login.html", username=username,
+                        error="Session expired. Try again.")
+        try:
+            user = store.verify(username, password_input)
+        except NetautoError as exc:
+            return page(request, "login.html", username=username, error=str(exc))
+        if user:
             _FAILURES.pop(key, None)
-            request.session["user"] = "team"
+            request.session.clear()
+            request.session["user"] = user.name
+            request.session["admin"] = user.admin
             request.session["csrf"] = secrets.token_urlsafe(32)
+            activity.record(user.name, "login", client_addr(request))
             return RedirectResponse("/", status_code=HTTP_303_SEE_OTHER)
         count, first = _FAILURES.get(key, (0, time.time()))
         _FAILURES[key] = (count + 1, first if count else time.time())
-        return page(request, "login.html", error="Incorrect password.")
+        activity.record(username or "unknown", "login-failed", client_addr(request))
+        return page(request, "login.html", username=username,
+                    error="Incorrect username or password.")
 
     @app.post("/logout")
     def logout(request: Request):
+        if current_user(request):
+            log(request, "logout")
         request.session.clear()
-        return RedirectResponse("/login", status_code=HTTP_303_SEE_OTHER)
+        return login_redirect()
 
     # -- pages -----------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):
-        if not authed(request):
+        if not current_user(request):
             return login_redirect()
         error, devices = None, []
         try:
@@ -151,11 +177,12 @@ def create_app() -> FastAPI:
                 tags[t] = tags.get(t, 0) + 1
         return page(request, "dashboard.html", devices=devices, error=error,
                     families=families, tags=sorted(tags.items()),
-                    platforms=supported_platforms())
+                    platforms=supported_platforms(),
+                    recent=activity.tail(8) if is_admin(request) else [])
 
     @app.get("/devices", response_class=HTMLResponse)
     def device_list(request: Request, tag: str = "", platform: str = ""):
-        if not authed(request):
+        if not current_user(request):
             return login_redirect()
         error, devices = None, []
         try:
@@ -168,12 +195,13 @@ def create_app() -> FastAPI:
 
     @app.get("/devices/{name}", response_class=HTMLResponse)
     def device_detail(request: Request, name: str, show: str = ""):
-        if not authed(request):
+        if not current_user(request):
             return login_redirect()
-        facts, config, error, cmd_output, cmd_error = None, None, None, None, None
+        facts = config = error = cmd_output = cmd_error = None
         try:
             settings, inventory = load_context()
             dev = inventory.get(name)
+            log(request, "inspect-device", name)
             with connect(dev, settings) as driver:
                 facts = driver.facts()
                 try:
@@ -183,17 +211,18 @@ def create_app() -> FastAPI:
                 if show:
                     try:
                         cmd_output = driver.run_read(show)
+                        log(request, "run-command", name, show)
                     except NetautoError as exc:
                         cmd_error = str(exc)
+                        log(request, "command-refused", name, f"{show} — {exc}")
         except NetautoError as exc:
             error = str(exc)
-            dev = None
         return page(request, "device.html", name=name, facts=facts, config=config,
                     error=error, show=show, cmd_output=cmd_output, cmd_error=cmd_error)
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit_page(request: Request, tag: str = "", device: str = ""):
-        if not authed(request):
+        if not current_user(request):
             return login_redirect()
         results, error, ran = [], None, bool(tag or device)
         tags: list[str] = []
@@ -202,6 +231,7 @@ def create_app() -> FastAPI:
             tags = sorted({t for d in inventory for t in d.tags})
             if ran:
                 targets = [inventory.get(device)] if device else inventory.select(tag=tag)
+                log(request, "audit", device or f"tag:{tag}", f"{len(targets)} devices")
                 results = [audit_device(d, settings) for d in targets]
         except NetautoError as exc:
             error = str(exc)
@@ -216,7 +246,7 @@ def create_app() -> FastAPI:
 
     @app.get("/discover", response_class=HTMLResponse)
     def discover_page(request: Request, cidr: str = "", interface: str = ""):
-        if not authed(request):
+        if not current_user(request):
             return login_redirect()
         hosts, error = [], None
         if cidr:
@@ -230,6 +260,7 @@ def create_app() -> FastAPI:
                 cmd = [binary, cidr, "--plain"]
                 if interface:
                     cmd += ["-I", interface]
+                log(request, "discover", cidr, interface)
                 try:
                     proc = subprocess.run(cmd, capture_output=True, text=True,
                                           timeout=180, check=False)
@@ -246,14 +277,20 @@ def create_app() -> FastAPI:
         return page(request, "discover.html", hosts=hosts, error=error,
                     cidr=cidr, interface=interface)
 
+    @app.get("/activity", response_class=HTMLResponse)
+    def activity_page(request: Request):
+        if not current_user(request):
+            return login_redirect()
+        if not is_admin(request):
+            return page(request, "denied.html")
+        return page(request, "activity.html", entries=activity.tail(200),
+                    accounts=store.list(), log_path=activity.default_path())
+
     @app.get("/health")
     def health():
         return {"status": "ok", "version": __version__}
 
     return app
-
-
-app = None  # built by main(); import-time creation would need the env set
 
 
 def main() -> None:
