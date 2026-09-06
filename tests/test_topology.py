@@ -151,6 +151,26 @@ def test_neighbour_absent_from_inventory_becomes_a_discovered_node(fake_neighbor
     assert not topo.discovered_nodes[0].known
 
 
+def test_an_unscanned_inventory_device_is_not_called_discovered(fake_neighbors):
+    """A tag-filtered run still knows the devices it manages.
+
+    Resolving neighbour names against only the scanned subset made a managed
+    device appear under "seen but not in inventory", drawn as an unknown box
+    with no platform -- every time someone filtered by tag.
+    """
+    fake_neighbors["acc-sw-01"] = [{"local_port": "1", "remote_host": "core-sw-01",
+                                    "remote_port": "Gi1/0/1"}]
+    inventory = _inventory(_dev("acc-sw-01", "aruba_osswitch", tags=("access",)),
+                           _dev("core-sw-01", "cisco_ios", tags=("core",)))
+    topo = topology.build(inventory, _settings(),
+                          inventory.select(tag="access"))
+    core = topo.nodes["core-sw-01"]
+    assert core.known
+    assert core.platform == "cisco_ios"
+    assert core.tier == "core"
+    assert topo.discovered_nodes == []
+
+
 def test_neighbour_with_no_name_is_skipped(fake_neighbors):
     """A row with no usable identity cannot become a node."""
     fake_neighbors["sw1"] = [{"local_port": "Gi1", "remote_host": "", "remote_port": "x"}]
@@ -410,3 +430,53 @@ def test_topology_adds_no_write_route(client):
     posts = {r.path for r in client.app.routes
              if getattr(r, "methods", None) and "POST" in r.methods}
     assert posts == {"/login", "/logout"}
+
+
+def _populated():
+    """A graph with all four things the page has to render."""
+    topo = _sample()
+    topo.gaps = {"fw-01": "fortinet_cli exposes no LLDP/CDP table through netauto"}
+    for link in topo.links:
+        for end in (link.a, link.b):
+            topo.nodes[end]._degree += 1
+    return topo
+
+
+def test_page_renders_the_link_table(client, monkeypatch):
+    monkeypatch.setattr(topology, "build", lambda *a, **kw: _populated())
+    body = client.get("/topology?run=1").text
+    assert "ge-0/0/0" in body and "Te1/1/1" in body
+    assert "both ends" in body and "one end" in body
+
+
+def test_page_lists_discovered_and_gaps_separately(client, monkeypatch):
+    """A device that reported nothing is a gap, not a discovered neighbour."""
+    monkeypatch.setattr(topology, "build", lambda *a, **kw: _populated())
+    body = client.get("/topology?run=1").text
+    assert "Seen but not in inventory" in body
+    assert "Contributed nothing" in body
+    assert "fortinet_cli exposes no LLDP" in body
+
+
+def test_page_offers_the_downloads_once_a_graph_exists(client, monkeypatch):
+    monkeypatch.setattr(topology, "build", lambda *a, **kw: _populated())
+    body = client.get("/topology?run=1").text
+    assert "/topology.drawio" in body and "/topology.json" in body
+
+
+def test_page_says_so_when_no_links_were_found(client, monkeypatch):
+    """An empty graph is a real answer: LLDP may simply be off everywhere."""
+    monkeypatch.setattr(topology, "build", lambda *a, **kw: Topology())
+    body = client.get("/topology?run=1").text
+    assert "No links found" in body
+
+
+def test_tag_filter_reaches_the_download(client, monkeypatch):
+    seen = {}
+
+    def build(inventory, settings, devices=None):
+        seen["count"] = len(devices) if devices is not None else None
+        return _populated()
+
+    monkeypatch.setattr(topology, "build", build)
+    assert client.get("/topology.drawio?tag=core").status_code == 200

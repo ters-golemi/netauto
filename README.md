@@ -221,7 +221,7 @@ connect to nothing, so they unit-test against captured configs.
 
 ## Testing
 
-167 tests, no hardware required. The command guard has the heaviest coverage
+173 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 

@@ -222,6 +222,11 @@ def build(inventory: Inventory, settings: Settings,
     targets = devices if devices is not None else list(inventory)
     topo = Topology()
 
+    # Name resolution consults the whole inventory, not just the scan targets.
+    # A tag-filtered run still reports to a device it manages, and calling that
+    # device "discovered" because this run did not scan it would be a lie.
+    catalogue: dict[str, Device] = {normalise_host(d.name): d for d in inventory}
+
     # Inventory entries are nodes whether or not they answer, so a device that
     # is down still appears in the diagram rather than vanishing from it.
     by_norm: dict[str, str] = {}
@@ -259,12 +264,24 @@ def build(inventory: Inventory, settings: Settings,
             # hostname does not create a duplicate of a device we already have.
             remote_name = by_norm.get(remote_norm)
             if remote_name is None:
-                remote_name = remote_raw.strip()
-                if remote_name not in topo.nodes:
-                    topo.nodes[remote_name] = Node(
-                        name=remote_name, known=False, tier="discovered",
-                        description=str(row.get("remote_description", "") or "")[:200],
-                    )
+                catalogued = catalogue.get(remote_norm)
+                if catalogued is not None:
+                    # In the inventory, just not scanned this run. It belongs
+                    # on the diagram as itself, with no neighbours of its own.
+                    remote_name = catalogued.name
+                    if remote_name not in topo.nodes:
+                        topo.nodes[remote_name] = Node(
+                            name=remote_name, known=True,
+                            platform=catalogued.platform,
+                            tier=tier_for(catalogued),
+                        )
+                else:
+                    remote_name = remote_raw.strip()
+                    if remote_name not in topo.nodes:
+                        topo.nodes[remote_name] = Node(
+                            name=remote_name, known=False, tier="discovered",
+                            description=str(row.get("remote_description", "") or "")[:200],
+                        )
                 by_norm[remote_norm] = remote_name
 
             pair = tuple(sorted((normalise_host(name), remote_norm)))
