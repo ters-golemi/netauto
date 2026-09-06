@@ -133,7 +133,17 @@ def test_health_needs_no_session(client):
     assert client.get("/health").json()["status"] == "ok"
 
 
-def test_missing_inventory_is_reported_not_crashed(client):
+def test_missing_inventory_is_reported_not_crashed(client, monkeypatch):
+    from netauto.errors import NetautoError
+    from netauto.web import app as appmod
+
+    # Patched rather than left to the filesystem: this asserted on the real
+    # working-directory inventory, so it passed only until someone followed
+    # step 6 of INSTALL.md and created inventory/devices.yaml.
+    def missing():
+        raise NetautoError("No inventory loaded from inventory/devices.yaml")
+
+    monkeypatch.setattr(appmod, "load_context", missing)
     _login(client)
     assert "No inventory loaded" in client.get("/").text
 
