@@ -93,7 +93,8 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 ```
 
 Pages: overview, device list, per-device facts and running config, a read-only
-command box, compliance audit by group, ARP discovery, and an activity log.
+command box, compliance audit by group, ARP discovery, an activity log, and a
+Metrics tab embedding the Grafana dashboard when one is configured.
 
 ### Accounts
 
@@ -187,7 +188,7 @@ connect to nothing, so they unit-test against captured configs.
 
 ## Testing
 
-114 tests, no hardware required. The command guard has the heaviest coverage
+125 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 

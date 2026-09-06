@@ -46,6 +46,12 @@ services:
       # This dashboard shows device names, OS versions and serials. Keep the
       # login on even though it is bound to loopback.
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Lets netauto's Metrics tab frame the dashboard. Without this Grafana
+      # sends X-Frame-Options: deny and the tab renders an empty rectangle.
+      # Grafana keeps its own login: both services are same-site (SameSite
+      # ignores ports), so a Grafana session cookie is sent inside the frame
+      # once the viewer has signed in to Grafana as well.
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in deploy/grafana/.env}
       GF_USERS_ALLOW_SIGN_UP: "false"

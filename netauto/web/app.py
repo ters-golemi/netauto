@@ -42,6 +42,33 @@ _FAILURES: dict[tuple[str, str], tuple[int, float]] = {}
 MAX_FAILURES = 5
 LOCKOUT_SECONDS = 300
 
+#: UID of the provisioned dashboard in deploy/grafana/dashboards/.
+GRAFANA_DASHBOARD_UID = "netauto-compliance"
+
+
+def grafana_health(base_url: str, timeout: float = 2.0) -> tuple[bool, str]:
+    """Ask Grafana whether it is up, so a blank frame can be explained.
+
+    An embedded iframe that fails renders as an empty rectangle with no clue
+    why -- Grafana not running, or embedding not allowed. Checking server-side
+    lets the page say which.
+    """
+    import json as jsonlib
+    import urllib.error
+    import urllib.request
+
+    if not base_url.startswith(("http://", "https://")):
+        return False, f"NETAUTO_GRAFANA_URL must be http(s), got {base_url!r}"
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/health", timeout=timeout) as resp:
+            body = jsonlib.loads(resp.read().decode() or "{}")
+            return True, str(body.get("version", ""))
+    except urllib.error.HTTPError as exc:
+        # 401 or 403 still means Grafana is there and answering.
+        return exc.code < 500, f"HTTP {exc.code}"
+    except Exception as exc:
+        return False, str(exc)
+
 
 def create_app(users: UserStore | None = None) -> FastAPI:
     store = users or UserStore()
@@ -59,6 +86,10 @@ def create_app(users: UserStore | None = None) -> FastAPI:
     # the token is the only thing between a local process and your inventory.
     metrics_token = os.environ.get("NETAUTO_METRICS_TOKEN", "")
     collector = metrics.Collector() if metrics_token else None
+
+    # The Metrics tab appears only when a Grafana URL is configured, so people
+    # not running the stack do not get a nav item that leads nowhere.
+    grafana_url = os.environ.get("NETAUTO_GRAFANA_URL", "").rstrip("/")
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -110,6 +141,7 @@ def create_app(users: UserStore | None = None) -> FastAPI:
                 "csrf_token": csrf(request),
                 "user": current_user(request),
                 "is_admin": is_admin(request),
+                "grafana_enabled": bool(grafana_url),
                 **ctx,
             },
         )
@@ -303,6 +335,28 @@ def create_app(users: UserStore | None = None) -> FastAPI:
             return page(request, "denied.html")
         return page(request, "activity.html", entries=activity.tail(200),
                     accounts=store.list(), log_path=activity.default_path())
+
+    @app.get("/grafana", response_class=HTMLResponse)
+    def grafana_page(request: Request):
+        """The Metrics tab: the provisioned dashboard, embedded.
+
+        Grafana keeps its own login. Both services are same-site (ports do not
+        affect SameSite), so a Grafana session cookie is sent inside this frame
+        once the viewer has signed in there too.
+        """
+        if not current_user(request):
+            return login_redirect()
+        if not grafana_url:
+            return page(request, "grafana.html", grafana_url="", reachable=False,
+                        detail="", embed_url="", dashboard_url="")
+        reachable, detail = grafana_health(grafana_url)
+        dashboard_url = f"{grafana_url}/d/{GRAFANA_DASHBOARD_UID}"
+        return page(request, "grafana.html", grafana_url=grafana_url,
+                    reachable=reachable, detail=detail,
+                    dashboard_url=dashboard_url,
+                    # kiosk drops Grafana's own chrome, which would otherwise
+                    # put a second nav bar inside our page.
+                    embed_url=f"{dashboard_url}?kiosk&from=now-7d&to=now&refresh=1m")
 
     @app.get("/health")
     def health():

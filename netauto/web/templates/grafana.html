@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% set nav = 'grafana' %}
+{% block title %}Metrics — Netauto{% endblock %}
+{% block main_class %}shell wide{% endblock %}
+{% block content %}
+<div class="headrow">
+  <h1>Metrics</h1>
+  {% if grafana_url %}
+  <a class="linkout" href="{{ dashboard_url }}" target="_blank"
+     rel="noopener noreferrer">Open in Grafana &#8599;</a>
+  {% endif %}
+</div>
+
+{% if not grafana_url %}
+<div class="alert block">
+  <p>Grafana is not configured.</p>
+  <p class="note">Set <code>NETAUTO_GRAFANA_URL</code> in the service environment
+     and restart. See <code>deploy/grafana/README.md</code> for the stack.</p>
+</div>
+
+{% elif not reachable %}
+<div class="alert block">
+  <p>Cannot reach Grafana at <code>{{ grafana_url }}</code>.</p>
+  <p class="note">{{ detail }}</p>
+  <p class="note">Start the stack with
+     <code>cd deploy/grafana &amp;&amp; docker compose up -d</code>, then reload
+     this page.</p>
+</div>
+
+{% else %}
+<p class="note">Compliance and reachability from the audit collector. Figures
+   refresh when the collector next runs, not when this page reloads — a panel
+   that has not moved is usually a cycle that has not happened yet.</p>
+<div class="framewrap">
+  <iframe src="{{ embed_url }}" title="Netauto compliance dashboard"
+          loading="lazy" referrerpolicy="no-referrer"></iframe>
+</div>
+<p class="note">Blank panels usually mean you are not signed in to Grafana in
+   this browser — <a href="{{ grafana_url }}" target="_blank" rel="noopener noreferrer">sign
+   in there</a> once and reload. Grafana keeps its own accounts; netauto does
+   not proxy them.</p>
+{% endif %}
+{% endblock %}

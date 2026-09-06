@@ -85,6 +85,32 @@ ss -tlnp | grep -E '3000|9090'
 
 If either shows `0.0.0.0`, the setting was lost and the service is exposed.
 
+## The Metrics tab
+
+Netauto's GUI embeds this dashboard at `/grafana`, shown in the nav as
+**Metrics**. Two settings make it work:
+
+- `NETAUTO_GRAFANA_URL` in `~/.config/netauto/netauto.env`. Unset hides the tab
+  entirely, so people not running this stack do not get a nav item leading
+  nowhere.
+- `GF_SECURITY_ALLOW_EMBEDDING: "true"` in the compose file. Without it Grafana
+  sends `X-Frame-Options: deny` and the tab renders an empty rectangle.
+
+**Grafana keeps its own login.** Netauto does not proxy or share credentials —
+sign in to Grafana once in the same browser and the frame works from then on.
+This is viable because the two are same-site: `SameSite` ignores port numbers,
+so `localhost:8080` framing `localhost:3000` still sends Grafana's session
+cookie.
+
+The alternative is anonymous access — `GF_AUTH_ANONYMOUS_ENABLED: "true"` with
+a Viewer role — which removes the second sign-in but leaves device names,
+models and serials readable by any local process without authentication. That
+is a real loosening for a convenience, so it is off by default.
+
+Netauto probes Grafana server-side before rendering the frame, because a failed
+iframe is an empty rectangle with no clue why. A stopped stack shows the
+connection error and the command to start it, rather than a blank panel.
+
 ## Secrets
 
 Two generated files, both gitignored, both `0600`:
