@@ -144,3 +144,28 @@ def test_grafana_tab_adds_no_write_route(store, monkeypatch):
     posts = {r.path for r in app.routes
              if getattr(r, "methods", None) and "POST" in r.methods}
     assert posts == {"/login", "/logout"}
+
+
+def test_the_start_command_is_runnable_from_anywhere(store, monkeypatch):
+    """A relative path is useless to someone reading a web page.
+
+    "cd deploy/grafana" only works from the repo root, and a browser gives no
+    clue what directory the server was started in -- so it fails with
+    "Directory not found" for anyone who is anywhere else.
+    """
+    monkeypatch.setenv("NETAUTO_GRAFANA_URL", GRAFANA)
+    monkeypatch.setattr(appmod, "grafana_health",
+                        lambda url, timeout=2.0: (False, "Connection refused"))
+    client = TestClient(create_app(store))
+    _login(client)
+    body = client.get("/grafana").text
+    assert "cd /" in body, "the start command must use an absolute path"
+    assert "cd deploy/grafana" not in body
+    assert str(appmod.REPO_ROOT / "deploy" / "grafana") in body
+
+
+def test_the_unconfigured_page_also_points_somewhere_real(store, monkeypatch):
+    monkeypatch.delenv("NETAUTO_GRAFANA_URL", raising=False)
+    client = TestClient(create_app(store))
+    _login(client)
+    assert str(appmod.REPO_ROOT / "deploy" / "grafana") in client.get("/grafana").text

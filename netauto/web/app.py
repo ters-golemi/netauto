@@ -35,6 +35,10 @@ from netauto.web import activity
 from netauto.web.users import UserStore
 
 HERE = Path(__file__).resolve().parent
+#: Repository root, so pages can print commands the reader can actually
+#: run. A relative path is useless in a browser: nobody viewing the page
+#: knows what directory the server was started from.
+REPO_ROOT = HERE.parent.parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
 
 #: Login throttle keyed by (client address, username).
@@ -411,12 +415,13 @@ def create_app(users: UserStore | None = None) -> FastAPI:
             return login_redirect()
         if not grafana_url:
             return page(request, "grafana.html", grafana_url="", reachable=False,
-                        detail="", embed_url="", dashboard_url="")
+                        detail="", embed_url="", dashboard_url="",
+                        deploy_dir=REPO_ROOT / "deploy" / "grafana")
         reachable, detail = grafana_health(grafana_url)
         dashboard_url = f"{grafana_url}/d/{GRAFANA_DASHBOARD_UID}"
         return page(request, "grafana.html", grafana_url=grafana_url,
                     reachable=reachable, detail=detail,
-                    dashboard_url=dashboard_url,
+                    dashboard_url=dashboard_url, deploy_dir=REPO_ROOT / "deploy" / "grafana",
                     # kiosk drops Grafana's own chrome, which would otherwise
                     # put a second nav bar inside our page.
                     embed_url=f"{dashboard_url}?kiosk&from=now-7d&to=now&refresh=1m")

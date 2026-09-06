@@ -273,3 +273,10 @@ h2 .more { font-size:12px; text-transform:none; letter-spacing:0; color:var(--ac
   .framewrap iframe { height:1500px; }
   .headrow { flex-direction:column; gap:4px; }
 }
+
+/* Commands a reader is meant to run: absolute, selectable, not wrapped. */
+pre.cmd {
+  margin:10px 0; padding:10px 12px; border:1px solid var(--line);
+  border-radius:6px; overflow-x:auto; font-size:13px;
+  background:rgba(127,127,127,0.08);
+}

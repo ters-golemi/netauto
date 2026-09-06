@@ -15,16 +15,17 @@
 <div class="alert block">
   <p>Grafana is not configured.</p>
   <p class="note">Set <code>NETAUTO_GRAFANA_URL</code> in the service environment
-     and restart. See <code>deploy/grafana/README.md</code> for the stack.</p>
+     and restart. See <code>{{ deploy_dir }}/README.md</code> for the stack.</p>
 </div>
 
 {% elif not reachable %}
 <div class="alert block">
   <p>Cannot reach Grafana at <code>{{ grafana_url }}</code>.</p>
   <p class="note">{{ detail }}</p>
-  <p class="note">Start the stack with
-     <code>cd deploy/grafana &amp;&amp; docker compose up -d</code>, then reload
-     this page.</p>
+  <p class="note">Start the stack, then reload this page:</p>
+  <pre class="cmd">cd {{ deploy_dir }} &amp;&amp; docker compose up -d</pre>
+  <p class="note">Add <code>sudo</code> if your account is not in the
+     <code>docker</code> group.</p>
 </div>
 
 {% else %}
