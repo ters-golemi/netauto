@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set nav = 'topology' %}
+{% block title %}Topology — Netauto{% endblock %}
+{% block content %}
+<h1>Topology</h1>
+<form class="inline" method="get">
+  <input type="hidden" name="run" value="1">
+  <select name="tag">
+    <option value="">whole inventory</option>
+    {% for t in tags %}
+      <option value="{{ t }}" {{ 'selected' if t == tag }}>{{ t }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="primary">Discover links</button>
+</form>
+<p class="note">Reads each device's LLDP/CDP neighbour table and merges the
+   reports into one graph. Every link is seen twice — once from each end — so
+   a link both ends agree on is drawn solid, and one only a single device
+   reported is drawn dashed. This opens a session per device, so it takes about
+   as long as an audit.</p>
+
+{% if error %}<div class="alert block"><p>{{ error }}</p></div>{% endif %}
+
+{% if topo %}
+<div class="headrow">
+  <p class="filterbar">{{ legend }}</p>
+  <span>
+    <a class="linkout" href="/topology.drawio{{ '?tag=' ~ tag if tag }}">Download .drawio &#8595;</a>
+    <a class="linkout" href="/topology.json{{ '?tag=' ~ tag if tag }}">JSON &#8595;</a>
+  </span>
+</div>
+<p class="note">Open the <code>.drawio</code> file at
+   <a href="https://app.diagrams.net" target="_blank" rel="noopener noreferrer">diagrams.net</a>
+   or in the desktop app. It arrives with network stencils, orthogonal
+   connectors and port labels already placed — rearrange it there, and use
+   <em>File &rarr; Save as</em> for <code>.vsdx</code> if you need Visio.</p>
+
+{% if topo.links %}
+<div class="tablewrap">
+<table class="data grid">
+  <thead><tr>
+    <th>Device</th><th>Port</th><th></th><th>Port</th><th>Neighbour</th><th>Agreement</th>
+  </tr></thead>
+  <tbody>
+  {% for link in topo.links %}
+    <tr>
+      <td class="strong">{{ link.a }}</td>
+      <td><code>{{ link.a_port or '—' }}</code></td>
+      <td class="muted">&#8212;</td>
+      <td><code>{{ link.b_port or '—' }}</code></td>
+      <td class="strong">{{ link.b }}</td>
+      <td>{% if link.confirmed %}<span class="ok">both ends</span>
+          {% else %}<span class="muted">one end</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">No links found. LLDP has to be enabled on the devices for
+   anything to appear here.</p>
+{% endif %}
+
+{% if topo.discovered_nodes %}
+<h2>Seen but not in inventory</h2>
+<p class="note">Neighbours that answered LLDP on a device you manage, but which
+   have no inventory entry of their own. Often APs, phones and servers; sometimes
+   a switch nobody documented.</p>
+<div class="tablewrap">
+<table class="data grid">
+  <thead><tr><th>Name</th><th>Links</th><th>Reported description</th></tr></thead>
+  <tbody>
+  {% for n in topo.discovered_nodes|sort(attribute='name') %}
+    <tr><td class="strong">{{ n.name }}</td><td>{{ n.degree }}</td>
+        <td class="muted">{{ n.description or '—' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if topo.gaps %}
+<h2>Contributed nothing</h2>
+<p class="note">These are gaps in the picture, not necessarily faults. A device
+   that cannot report neighbours still appears in the diagram, just without
+   links of its own.</p>
+<div class="tablewrap">
+<table class="data grid">
+  <thead><tr><th>Device</th><th>Reason</th></tr></thead>
+  <tbody>
+  {% for name, reason in topo.gaps.items() %}
+    <tr><td class="strong">{{ name }}</td><td class="muted">{{ reason }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% elif ran %}
+<p class="muted">Nothing collected.</p>
+{% endif %}
+{% endblock %}

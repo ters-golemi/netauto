@@ -21,7 +21,7 @@ class NapalmDriver(Driver):
     """Wraps a napalm network driver. Subclassed per platform."""
 
     napalm_name: str = ""
-    capabilities = frozenset({"facts", "config", "command", "interfaces"})
+    capabilities = frozenset({"facts", "config", "command", "interfaces", "neighbors"})
 
     def open(self) -> None:
         from napalm import get_network_driver
@@ -103,6 +103,52 @@ class NapalmDriver(Driver):
         except Exception as exc:
             raise DriverError(f"{self.device.name}: {cmd!r} failed: {exc}") from exc
         return result.get(cmd, "") or ""
+
+    def neighbors(self) -> list[dict[str, Any]]:
+        """LLDP neighbours, preferring the detailed table.
+
+        get_lldp_neighbors_detail carries the remote system name and port
+        description, which is what makes a diagram readable. Not every
+        platform implements it, so the plain table is the fallback -- it has
+        only hostname and port, which is still enough to draw a link.
+        """
+        conn = self._require()
+        try:
+            detail = conn.get_lldp_neighbors_detail()
+        except Exception:
+            detail = None
+
+        out: list[dict[str, Any]] = []
+        if detail:
+            for local_port, entries in detail.items():
+                for e in entries or []:
+                    out.append({
+                        "local_port": local_port,
+                        "remote_host": (e.get("remote_system_name")
+                                        or e.get("remote_chassis_id") or ""),
+                        "remote_port": (e.get("remote_port")
+                                        or e.get("remote_port_description") or ""),
+                        "remote_description": e.get("remote_system_description", "") or "",
+                        "remote_chassis_id": e.get("remote_chassis_id", "") or "",
+                    })
+            return out
+
+        try:
+            plain = conn.get_lldp_neighbors()
+        except Exception as exc:
+            raise DriverError(
+                f"{self.device.name}: LLDP neighbour retrieval failed: {exc}"
+            ) from exc
+        for local_port, entries in (plain or {}).items():
+            for e in entries or []:
+                out.append({
+                    "local_port": local_port,
+                    "remote_host": e.get("hostname", "") or "",
+                    "remote_port": e.get("port", "") or "",
+                    "remote_description": "",
+                    "remote_chassis_id": "",
+                })
+        return out
 
     def interfaces(self) -> dict[str, Any]:
         """Interface state, where the platform supports it."""

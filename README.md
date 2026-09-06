@@ -58,6 +58,7 @@ Three independent layers, because one is not enough:
 | `net_audit` | Hardening ruleset against a device or tag group |
 | `net_config_diff` | Candidate vs running — review only, no commit |
 | `net_discover_local` | ARP sweep of a directly attached segment |
+| `net_topology` | LLDP/CDP graph, as JSON or an editable draw.io file |
 
 ## Agents
 
@@ -93,8 +94,9 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 ```
 
 Pages: overview, device list, per-device facts and running config, a read-only
-command box, compliance audit by group, ARP discovery, an activity log, and a
-Metrics tab embedding the Grafana dashboard when one is configured.
+command box, compliance audit by group, ARP discovery, LLDP topology with a
+draw.io export, an activity log, and a Metrics tab embedding the Grafana
+dashboard when one is configured.
 
 ### Accounts
 
@@ -137,6 +139,37 @@ middleware in `netauto/web/app.py`.
 
 **Still read-only.** A test asserts the only POST routes in the whole
 application are `/login` and `/logout`; every device route is a GET that reads.
+
+## Topology diagrams
+
+Builds a network diagram from what the devices themselves report over LLDP/CDP,
+and exports it as a **draw.io** file — network stencils, orthogonal connectors
+and port labels already placed. draw.io reads and writes `.vsdx`, so that file
+is also the route to something editable in Visio.
+
+```bash
+# in the GUI: Topology -> Discover links -> Download .drawio
+.venv/bin/python -c "
+from netauto import drawio, topology
+from netauto.session import load_context
+s, inv = load_context()
+print(drawio.render(topology.build(inv, s)))" > topology.drawio
+```
+
+Every link is reported twice, once from each end. Links both ends agree on are
+drawn solid; a link only one device reported is drawn dashed, because a
+one-sided report usually means the far end has LLDP off rather than that the
+cable is imaginary.
+
+Neighbours with no inventory entry are drawn dashed and labelled *discovered* —
+typically APs, phones and servers, occasionally a switch nobody wrote down.
+Devices that could not report neighbours at all are listed separately with the
+reason, so a thin diagram can be told from a small network.
+
+Tiers come from inventory tags (`core`, `edge`, `distribution`, `access` and
+their synonyms) and fall back to link count when a device carries none. LLDP
+must be enabled on the devices; nothing appears for a link neither end
+advertises.
 
 ## Metrics and Grafana
 
@@ -188,7 +221,7 @@ connect to nothing, so they unit-test against captured configs.
 
 ## Testing
 
-125 tests, no hardware required. The command guard has the heaviest coverage
+162 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 
@@ -200,7 +233,9 @@ default-deny behaviour.
 
 The vendor drivers are written against each SDK's documented API and are
 exercised by import and signature checks, but **only the local ARP discovery
-path has been run against real equipment**. Cisco, Juniper, Aruba, Meraki and
+path has been run against real equipment**. That includes the LLDP topology
+path: the graph assembly and draw.io output are covered by tests against
+captured neighbour tables, but no driver's `neighbors()` has met real gear. Cisco, Juniper, Aruba, Meraki and
 Fortinet paths need a first run against actual gear or a lab; expect to adjust
 response parsing, particularly `aoscx_driver.get_config` and the Central
 endpoint paths, which vary by firmware and region.

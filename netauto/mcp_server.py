@@ -16,7 +16,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from netauto import diffing
+from netauto import diffing, drawio, topology
 from netauto.audit import audit_device
 from netauto.checks import BUILTIN
 from netauto.drivers import supported_platforms
@@ -235,6 +235,40 @@ def net_discover_local(cidr: str, interface: str = "") -> str:
             hosts.append({"ip": parts[0], "mac": parts[1].lower(),
                           "vendor": parts[2] if len(parts) > 2 else ""})
     return _json({"cidr": cidr, "count": len(hosts), "hosts": hosts})
+
+
+@server.tool()
+def net_topology(tag: str = "", fmt: str = "json") -> str:
+    """Build a network topology graph from LLDP/CDP neighbour tables.
+
+    Asks each device what is directly attached to it and merges the reports.
+    Every link is seen from both ends, so links both ends agree on are marked
+    confirmed; a link only one device reported is still returned, flagged.
+
+    Neighbours with no inventory entry are included and marked known=false --
+    often APs, phones and servers, sometimes undocumented switches. Devices
+    that could not report neighbours appear under "gaps" with the reason, so a
+    thin graph can be told apart from a small network.
+
+    Args:
+        tag: limit to devices carrying this inventory tag.
+        fmt: "json" for the graph, or "drawio" for an editable diagram file
+            with network stencils, orthogonal connectors and port labels.
+    """
+    try:
+        settings, inventory = load_context()
+        devices = inventory.select(tag=tag) if tag else list(inventory)
+        if not devices:
+            return _json({"error": f"No devices match tag {tag!r}." if tag
+                          else "The inventory is empty."})
+        graph = topology.build(inventory, settings, devices)
+    except NetautoError as exc:
+        return _error(exc)
+    if fmt == "drawio":
+        return drawio.render(graph)
+    if fmt != "json":
+        return _json({"error": f"Unknown fmt {fmt!r}. Use 'json' or 'drawio'."})
+    return _json(topology.as_dict(graph))
 
 
 def main() -> None:

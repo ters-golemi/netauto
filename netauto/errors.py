@@ -21,6 +21,15 @@ class UnsupportedPlatform(NetautoError):
     """No driver is registered for the requested platform."""
 
 
+class UnsupportedOperation(NetautoError):
+    """The driver has no path to what was asked, on this platform.
+
+    Distinct from DriverError: nothing went wrong on the wire. A Meraki
+    organisation has no CLI and a cloud tenant has no LLDP table, and callers
+    should report that as a gap rather than as a failure.
+    """
+
+
 class UnsafeCommand(NetautoError):
     """A command was rejected because it is not on the read-only allowlist."""
 

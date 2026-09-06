@@ -11,7 +11,7 @@ from typing import Any
 
 from netauto.config import resolve_credentials
 from netauto.drivers.base import Driver, assert_read_only
-from netauto.errors import AuthError, DriverError
+from netauto.errors import AuthError, DriverError, UnsupportedOperation
 
 
 class NetmikoDriver(Driver):
@@ -20,7 +20,8 @@ class NetmikoDriver(Driver):
     device_type: str = ""
     running_config_command: str = "show running-config"
     facts_command: str = "show version"
-    capabilities = frozenset({"facts", "config", "command"})
+    neighbors_command: str = "show lldp neighbors detail"
+    capabilities = frozenset({"facts", "config", "command", "neighbors"})
 
     def open(self) -> None:
         from netmiko import ConnectHandler
@@ -84,6 +85,59 @@ class NetmikoDriver(Driver):
         except Exception as exc:
             raise DriverError(f"{self.device.name}: {cmd!r} failed: {exc}") from exc
 
+    def neighbors(self) -> list[dict[str, Any]]:
+        """LLDP neighbours, parsed by TextFSM rather than by hand.
+
+        netmiko ships ntc-templates, so use_textfsm gives structured rows for
+        the platforms that have a template. Hand-rolled regex over LLDP output
+        is a losing game -- the column widths and field order move between
+        vendors and firmware revisions.
+
+        The command still goes through assert_read_only, so this cannot become
+        a way around the guard.
+        """
+        conn = self._require()
+        cmd = assert_read_only(self.neighbors_command, self.device.platform)
+        try:
+            parsed = conn.send_command(cmd, use_textfsm=True,
+                                       read_timeout=self.settings.command_timeout)
+        except Exception as exc:
+            raise DriverError(
+                f"{self.device.name}: {cmd!r} failed: {exc}"
+            ) from exc
+
+        # With no matching template TextFSM hands back the raw string. Refusing
+        # is better than shipping a half-parsed diagram that looks authoritative.
+        if not isinstance(parsed, list):
+            raise UnsupportedOperation(
+                f"{self.device.name}: no TextFSM template matched {cmd!r} for "
+                f"device type {self.device_type!r}, so neighbours cannot be read "
+                f"reliably. Retrieve it with net_run_show and read it by eye."
+            )
+
+        def pick(row: dict[str, Any], *names: str) -> str:
+            """Field names differ per template; take the first that is filled."""
+            for n in names:
+                value = row.get(n)
+                if value:
+                    return str(value).strip()
+            return ""
+
+        out: list[dict[str, Any]] = []
+        for row in parsed:
+            if not isinstance(row, dict):
+                continue
+            out.append({
+                "local_port": pick(row, "local_interface", "local_port", "interface"),
+                "remote_host": pick(row, "neighbor", "neighbor_name", "system_name",
+                                    "device_id", "chassis_id"),
+                "remote_port": pick(row, "neighbor_interface", "neighbor_port_id",
+                                    "port_id", "remote_port"),
+                "remote_description": pick(row, "system_description", "neighbor_description"),
+                "remote_chassis_id": pick(row, "chassis_id"),
+            })
+        return out
+
 
 class ArubaOsSwitchDriver(NetmikoDriver):
     """HPE Aruba AOS-Switch, formerly ProCurve."""
@@ -91,6 +145,9 @@ class ArubaOsSwitchDriver(NetmikoDriver):
     device_type = "hp_procurve"
     running_config_command = "show running-config"
     facts_command = "show system-information"
+    # ProCurve says "lldp info remote-device", not "lldp neighbors"; this is
+    # the form ntc-templates has a parser for.
+    neighbors_command = "show lldp info remote-device"
 
 
 class FortinetCliDriver(NetmikoDriver):
@@ -99,3 +156,9 @@ class FortinetCliDriver(NetmikoDriver):
     device_type = "fortinet"
     running_config_command = "show full-configuration"
     facts_command = "get system status"
+    # No estate-wide LLDP command here worth relying on: FortiOS exposes
+    # neighbours per-port ("diagnose lldprx port neighbor-details port-name
+    # <port>"), so there is nothing to enumerate a whole device with. Declared
+    # unsupported rather than guessed at -- the topology run reports it as a
+    # gap instead of silently drawing a firewall with no links.
+    capabilities = frozenset({"facts", "config", "command"})

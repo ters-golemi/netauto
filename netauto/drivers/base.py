@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from netauto.config import Settings
-from netauto.errors import UnsafeCommand, WriteDisabled
+from netauto.errors import UnsafeCommand, UnsupportedOperation, WriteDisabled
 from netauto.inventory import Device
 
 # Commands permitted per platform family. A command must match one of these.
@@ -130,6 +130,23 @@ class Driver(ABC):
     @abstractmethod
     def run_read(self, command: str) -> str:
         """Run one allowlisted read-only command and return its output."""
+
+    def neighbors(self) -> list[dict[str, Any]]:
+        """LLDP/CDP neighbours as dicts, for topology discovery.
+
+        Not abstract: a driver that cannot enumerate neighbours should say so
+        rather than force every platform to grow a stub. Callers check the
+        "neighbors" capability first and report the gap per device, so one
+        cloud tenant does not sink a whole topology run.
+
+        Each entry carries local_port, remote_host, remote_port and, where the
+        platform offers them, remote_description and remote_chassis_id.
+        """
+        raise UnsupportedOperation(
+            f"{type(self).__name__} cannot enumerate neighbours. "
+            f"Topology discovery needs LLDP or CDP, which this platform does "
+            f"not expose through netauto."
+        )
 
     # -- write operations --------------------------------------------------
 

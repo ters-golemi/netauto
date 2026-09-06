@@ -13,6 +13,7 @@ from netauto.errors import (
     DriverError,
     NetautoError,
     UnsafeCommand,
+    UnsupportedOperation,
     UnsupportedPlatform,
     WriteDisabled,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "DriverError",
     "AuthError",
     "UnsupportedPlatform",
+    "UnsupportedOperation",
     "UnsafeCommand",
     "WriteDisabled",
 ]

@@ -15,6 +15,7 @@
     <a href="/devices" class="{{ 'on' if nav == 'devices' }}">Devices</a>
     <a href="/audit" class="{{ 'on' if nav == 'audit' }}">Audit</a>
     <a href="/discover" class="{{ 'on' if nav == 'discover' }}">Discover</a>
+    <a href="/topology" class="{{ 'on' if nav == 'topology' }}">Topology</a>
     {% if grafana_enabled %}<a href="/grafana" class="{{ 'on' if nav == 'grafana' }}">Metrics</a>{% endif %}
     {% if is_admin %}<a href="/activity" class="{{ 'on' if nav == 'activity' }}">Activity</a>{% endif %}
   </nav>

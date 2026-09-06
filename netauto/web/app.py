@@ -18,14 +18,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
-from netauto import __version__, metrics
+from netauto import __version__, drawio, metrics, topology
 from netauto.audit import audit_device
 from netauto.drivers import supported_platforms
 from netauto.drivers.base import platform_family
@@ -335,6 +335,69 @@ def create_app(users: UserStore | None = None) -> FastAPI:
             return page(request, "denied.html")
         return page(request, "activity.html", entries=activity.tail(200),
                     accounts=store.list(), log_path=activity.default_path())
+
+    # The last collected graph, keyed by the tag filter that produced it. A
+    # download then matches the table the operator just looked at, instead of
+    # re-opening a session to every device the moment they click Save.
+    last_topo: dict[str, Any] = {"tag": None, "topo": None}
+
+    def collect_topology(request: Request, tag: str) -> Any:
+        settings, inventory = load_context()
+        devices = inventory.select(tag=tag) if tag else list(inventory)
+        log(request, "topology", tag or "all", f"{len(devices)} devices")
+        built = topology.build(inventory, settings, devices)
+        last_topo.update(tag=tag, topo=built)
+        return built
+
+    def topology_for(request: Request, tag: str) -> Any:
+        if last_topo["topo"] is not None and last_topo["tag"] == tag:
+            return last_topo["topo"]
+        return collect_topology(request, tag)
+
+    @app.get("/topology", response_class=HTMLResponse)
+    def topology_page(request: Request, run: str = "", tag: str = ""):
+        if not current_user(request):
+            return login_redirect()
+        error, topo, tags = None, None, []
+        try:
+            _, inventory = load_context()
+            tags = sorted({t for d in inventory for t in d.tags})
+        except NetautoError as exc:
+            error = str(exc)
+        if run and not error:
+            try:
+                topo = collect_topology(request, tag)
+            except NetautoError as exc:
+                error = str(exc)
+        return page(request, "topology.html", topo=topo, error=error, tag=tag,
+                    tags=tags, ran=bool(run) and not error,
+                    legend=drawio.legend_note(topo) if topo else "")
+
+    @app.get("/topology.drawio")
+    def topology_drawio(request: Request, tag: str = ""):
+        """The editable file: open in draw.io, or in Visio via draw.io."""
+        if not current_user(request):
+            return login_redirect()
+        try:
+            topo = topology_for(request, tag)
+        except NetautoError as exc:
+            return PlainTextResponse(str(exc), status_code=409)
+        return Response(
+            drawio.render(topo),
+            media_type="application/xml",
+            headers={"Content-Disposition":
+                     'attachment; filename="network-topology.drawio"'},
+        )
+
+    @app.get("/topology.json")
+    def topology_json(request: Request, tag: str = ""):
+        if not current_user(request):
+            return login_redirect()
+        try:
+            topo = topology_for(request, tag)
+        except NetautoError as exc:
+            return PlainTextResponse(str(exc), status_code=409)
+        return topology.as_dict(topo)
 
     @app.get("/grafana", response_class=HTMLResponse)
     def grafana_page(request: Request):
