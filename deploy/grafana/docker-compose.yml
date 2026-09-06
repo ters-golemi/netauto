@@ -18,7 +18,11 @@ services:
     container_name: netauto-prometheus
     network_mode: host
     restart: unless-stopped
-    user: "65534:65534"          # nobody; the volume is chowned by the image
+    # Runs as the user who owns scrape-token, not as nobody. The token is
+    # mode 0600 and mounted in; a container running as another uid cannot read
+    # it, and the alternatives were to make a secret world-readable or to
+    # chgrp it to nobody, which needs root at every deployment.
+    user: "${PROM_UID:-1000}:${PROM_GID:-1000}"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -30,7 +34,9 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./rules.yml:/etc/prometheus/rules.yml:ro
       - ./scrape-token:/etc/prometheus/scrape-token:ro
-      - prometheus-data:/prometheus
+      # A bind mount rather than a named volume: a fresh named volume inherits
+      # the image's nobody ownership, which the line above can no longer write.
+      - ./data/prometheus:/prometheus
 
   grafana:
     image: grafana/grafana:11.5.1
@@ -63,5 +69,4 @@ services:
       - grafana-data:/var/lib/grafana
 
 volumes:
-  prometheus-data:
   grafana-data:

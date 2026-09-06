@@ -18,3 +18,4 @@ activity.log
 # Prometheus scrape token, generated per deployment.
 deploy/grafana/scrape-token
 deploy/grafana/.env
+deploy/grafana/data/
