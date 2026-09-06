@@ -16,22 +16,27 @@ netauto-web ──> background collector ──> cached snapshot
                                                       (localhost:3000)
 ```
 
-The split matters. **Scraping never touches a device.** `audit_device()` opens
-a real SSH or NETCONF session per device, so if Prometheus drove that directly,
-a 30-second scrape interval would mean a login to every switch in the estate
-twice a minute, forever. Instead a background thread audits on its own slow
-schedule and caches the result; `/metrics` serialises the cache and returns in
-microseconds.
+The split matters. **Scraping never touches a device, and neither does
+anything else on a timer.** `audit_device()` opens a real SSH or NETCONF
+session per device, so nothing runs it but an operator. The results are cached
+per device and `/metrics` serialises that cache, returning in microseconds.
+
+Results merge rather than replace, because an audit is usually scoped to one
+device or one tag. Auditing a single switch leaves every other device's
+figures standing, and each carries its own
+`netauto_device_last_audit_timestamp_seconds` so you can see what has gone
+stale.
 
 So there are two intervals, and they mean different things:
 
 | Setting | Where | Controls |
 |---|---|---|
-| `NETAUTO_METRICS_INTERVAL` | `~/.config/netauto/netauto.env` | How often devices are actually audited. Default 900s, floor 60s. |
+| *(none — you run audits)* | the Audit page | When devices are actually contacted. Each audit updates the metrics for the devices it covered. |
+| `NETAUTO_METRICS_INTERVAL` | `~/.config/netauto/netauto.env` | Optional background sweep. Unset means manual only, which is the default; a value below 60s is raised to 60s. |
 | `scrape_interval` | `prometheus.yml` | How often Prometheus re-reads the cache. Free. Default 30s. |
 
-Raising the scrape interval will not give you fresher data. Only the first one
-does, and it costs a session per device per cycle.
+Raising the scrape interval will not give you fresher data — only running an
+audit does, and that costs a session per device.
 
 ## Prerequisites
 
@@ -149,6 +154,7 @@ all — metrics are opt-in.
 | `netauto_audit_cycle_seconds` | gauge | — |
 | `netauto_device_up` | gauge | `device`, `platform` |
 | `netauto_device_audit_seconds` | gauge | `device` |
+| `netauto_device_last_audit_timestamp_seconds` | gauge | `device` |
 | `netauto_device_config_lines` | gauge | `device` |
 | `netauto_device_info` | gauge | `device`, `platform`, `vendor`, `model`, `os_version`, `serial` |
 | `netauto_findings` | gauge | `device`, `status` |

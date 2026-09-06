@@ -190,10 +190,11 @@ Metrics are opt-in: with `NETAUTO_METRICS_TOKEN` unset the endpoint returns 404
 and no collector runs. Prometheus cannot hold a session cookie, so that token
 is the whole access control on the endpoint.
 
-**Scraping never touches a device.** A background collector audits on
-`NETAUTO_METRICS_INTERVAL` (900s by default, 60s floor) and caches the result;
-`/metrics` serves the cache. Letting a 30-second scrape drive real audits would
-mean logging in to every device in the estate twice a minute.
+**Nothing polls your devices.** Audits are manual, and the audits you run
+from the Audit page are what feed the metrics -- merged per device, so
+auditing one switch does not blank the rest. `/metrics` serves that cache, so
+scraping it costs nothing on the network. Set `NETAUTO_METRICS_INTERVAL` to a
+number of seconds only if you do want a background sweep as well.
 
 ## Platforms and transports
 
@@ -226,7 +227,7 @@ connect to nothing, so they unit-test against captured configs.
 
 ## Testing
 
-194 tests, no hardware required. The command guard has the heaviest coverage
+207 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 

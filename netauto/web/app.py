@@ -287,6 +287,10 @@ def create_app(users: UserStore | None = None) -> FastAPI:
                 targets = [inventory.get(device)] if device else inventory.select(tag=tag)
                 log(request, "audit", device or f"tag:{tag}", f"{len(targets)} devices")
                 results = [audit_device(d, settings) for d in targets]
+                # Audits are the only thing that contacts devices, so they are
+                # also what feeds the metrics. Nothing polls on a timer.
+                if collector is not None:
+                    collector.record(results)
         except NetautoError as exc:
             error = str(exc)
         totals = {"devices": len(results), "fail": 0, "pass": 0, "errors": 0}

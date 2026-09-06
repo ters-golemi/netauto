@@ -121,9 +121,95 @@ def test_interval_floor_is_enforced(monkeypatch):
     assert Collector().interval == metrics.MIN_INTERVAL
 
 
-def test_garbage_interval_falls_back_to_the_default(monkeypatch):
+def test_garbage_interval_stays_manual(monkeypatch):
+    """An unreadable interval must not be guessed into device traffic."""
     monkeypatch.setenv("NETAUTO_METRICS_INTERVAL", "soon")
-    assert Collector().interval == metrics.DEFAULT_INTERVAL
+    assert Collector().interval == metrics.MANUAL_ONLY
+
+
+def test_audits_are_manual_unless_an_interval_is_asked_for(monkeypatch):
+    monkeypatch.delenv("NETAUTO_METRICS_INTERVAL", raising=False)
+    assert Collector().interval == metrics.MANUAL_ONLY
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "  "])
+def test_non_positive_intervals_mean_manual(monkeypatch, value):
+    monkeypatch.setenv("NETAUTO_METRICS_INTERVAL", value)
+    assert Collector().interval == metrics.MANUAL_ONLY
+
+
+def test_an_explicit_interval_is_still_honoured(monkeypatch):
+    """Opting in to a background sweep must still work."""
+    monkeypatch.setenv("NETAUTO_METRICS_INTERVAL", "1800")
+    assert Collector().interval == 1800
+
+
+def test_manual_collector_starts_no_thread(monkeypatch):
+    """Nothing may contact a device on a timer nobody asked for."""
+    monkeypatch.delenv("NETAUTO_METRICS_INTERVAL", raising=False)
+
+    def boom(*a, **kw):
+        raise AssertionError("a manual collector must not poll")
+
+    monkeypatch.setattr(metrics, "load_context", boom)
+    c = Collector()
+    c.start()
+    try:
+        assert c._thread is None
+    finally:
+        c.stop()
+
+
+# -- fed by manual audits ------------------------------------------------
+
+
+def test_record_folds_an_audit_into_the_snapshot():
+    c = Collector(interval=0)
+    snap = c.record([{"device": "sw1", "platform": "cisco_ios",
+                      "summary": {"pass": 3, "fail": 1, "critical": 1},
+                      "findings": [{"rule_id": "no_telnet", "status": "fail",
+                                    "severity": "critical"}]}])
+    assert [r.name for r in snap.results] == ["sw1"]
+    assert snap.ready
+    assert snap.results[0].audited_at > 0
+
+
+def test_recording_one_device_does_not_drop_the_others():
+    """An audit is usually scoped; replacing would read as the estate shrinking."""
+    c = Collector(interval=0)
+    c.record([{"device": "sw1", "platform": "cisco_ios", "summary": {"pass": 3}}])
+    snap = c.record([{"device": "sw2", "platform": "cisco_ios", "summary": {"pass": 5}}])
+    assert [r.name for r in snap.results] == ["sw1", "sw2"]
+
+
+def test_re_auditing_a_device_replaces_its_result():
+    c = Collector(interval=0)
+    c.record([{"device": "sw1", "platform": "cisco_ios", "summary": {"fail": 4}}])
+    snap = c.record([{"device": "sw1", "platform": "cisco_ios", "summary": {"fail": 0}}])
+    assert len(snap.results) == 1
+    assert snap.results[0].summary["fail"] == 0
+
+
+def test_an_unreachable_device_records_as_down():
+    c = Collector(interval=0)
+    snap = c.record([{"device": "sw1", "platform": "cisco_ios", "error": "timeout"}])
+    assert not snap.results[0].reachable
+    assert snap.results[0].error == "timeout"
+
+
+def test_each_device_carries_its_own_audit_time():
+    """With manual audits devices go stale at different rates."""
+    c = Collector(interval=0)
+    c.record([{"device": "sw1", "platform": "cisco_ios", "summary": {"pass": 1}}])
+    snap = c.record([{"device": "sw2", "platform": "cisco_ios", "summary": {"pass": 1}}])
+    out = render(snap)
+    assert 'netauto_device_last_audit_timestamp_seconds{device="sw1"}' in out
+    assert 'netauto_device_last_audit_timestamp_seconds{device="sw2"}' in out
+
+
+def test_a_report_with_no_device_name_is_ignored():
+    c = Collector(interval=0)
+    assert c.record([{"platform": "cisco_ios"}]).results == []
 
 
 def test_missing_inventory_becomes_a_snapshot_not_a_crash(monkeypatch, tmp_path):
@@ -212,3 +298,36 @@ def test_collector_does_not_run_when_metrics_are_off(store, monkeypatch):
     monkeypatch.delenv("NETAUTO_METRICS_TOKEN", raising=False)
     app = create_app(store)
     assert app.state.collector is None
+
+
+def test_running_an_audit_updates_the_metrics(store, monkeypatch):
+    """The audit page is what feeds metrics now, so the wiring must hold."""
+    monkeypatch.setenv("NETAUTO_METRICS_TOKEN", TOKEN)
+    from netauto.web import app as appmod
+    from netauto.config import Settings
+    from netauto.inventory import Device, Inventory
+
+    device = Device(name="sw1", platform="cisco_ios", host="10.0.0.1", credentials="X",
+                    tags=("core",))
+    monkeypatch.setattr(appmod, "load_context",
+                        lambda: (Settings(inventory_path="x"), Inventory([device])))
+    monkeypatch.setattr(appmod, "audit_device", lambda d, s: {
+        "device": "sw1", "platform": "cisco_ios", "config_lines": 120,
+        "facts": {"vendor": "Cisco"},
+        "summary": {"pass": 9, "fail": 2, "critical": 1, "high": 1},
+        "findings": [{"rule_id": "no_telnet", "status": "fail", "severity": "critical"}],
+    })
+    client = TestClient(create_app(store))
+    token = client.get("/login").text.split('name="csrf_token" value="')[1].split('"')[0]
+    client.post("/login", data={"username": "alice", "password_input": PW,
+                                "csrf_token": token})
+
+    before = client.get("/metrics", headers={"Authorization": f"Bearer {TOKEN}"}).text
+    assert 'netauto_device_up{device="sw1"' not in before
+
+    client.get("/audit?tag=core")
+
+    after = client.get("/metrics", headers={"Authorization": f"Bearer {TOKEN}"}).text
+    assert 'netauto_device_up{device="sw1",platform="cisco_ios"} 1' in after
+    assert 'netauto_findings{device="sw1",status="fail"} 2' in after
+    assert 'netauto_rule_failed{device="sw1",rule_id="no_telnet",severity="critical"} 1' in after

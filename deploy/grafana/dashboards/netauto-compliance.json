@@ -1,26 +1,39 @@
 {
   "uid": "netauto-compliance",
   "title": "Netauto Compliance",
-  "description": "Device reachability and compliance drift, from the netauto audit collector. Values refresh at NETAUTO_METRICS_INTERVAL (15 min by default), not at the dashboard refresh rate.",
-  "tags": ["netauto", "network", "compliance"],
+  "description": "Device reachability and compliance from the audits you run. Values change when an audit runs, not on a schedule.",
+  "tags": [
+    "netauto",
+    "network",
+    "compliance"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
   "refresh": "1m",
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
         "name": "device",
         "label": "Device",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "netauto-prometheus"
+        },
         "query": "label_values(netauto_device_up, device)",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
-        "current": { "text": "All", "value": "$__all" }
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       }
     ]
   },
@@ -29,19 +42,40 @@
       "type": "stat",
       "title": "Devices monitored",
       "id": 1,
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "netauto_devices_total", "instant": true }
+        {
+          "refId": "A",
+          "expr": "netauto_devices_total",
+          "instant": true
+        }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "none",
         "graphMode": "none",
         "textMode": "value"
       },
       "fieldConfig": {
-        "defaults": { "unit": "short", "noValue": "0" },
+        "defaults": {
+          "unit": "short",
+          "noValue": "0"
+        },
         "overrides": []
       }
     },
@@ -50,13 +84,31 @@
       "title": "Unreachable",
       "id": 2,
       "description": "Devices the last audit could not connect to or authenticate against. Says nothing about whether the device itself is up.",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "count(netauto_device_up == 0) or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "expr": "count(netauto_device_up == 0) or vector(0)",
+          "instant": true
+        }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "background",
         "graphMode": "none",
         "textMode": "value"
@@ -68,8 +120,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         },
@@ -80,8 +138,16 @@
       "type": "stat",
       "title": "Critical findings",
       "id": 3,
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -90,7 +156,13 @@
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "background",
         "graphMode": "none",
         "textMode": "value"
@@ -102,8 +174,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         },
@@ -114,13 +192,31 @@
       "type": "stat",
       "title": "Failing rules",
       "id": 4,
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(netauto_rule_failed) or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "expr": "sum(netauto_rule_failed) or vector(0)",
+          "instant": true
+        }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "background",
         "graphMode": "none",
         "textMode": "value"
@@ -132,8 +228,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
             ]
           }
         },
@@ -144,9 +246,17 @@
       "type": "stat",
       "title": "Last audit",
       "id": 5,
-      "description": "Age of the cached snapshot. Should stay under NETAUTO_METRICS_INTERVAL plus one cycle duration.",
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "description": "Age of the newest audit. Audits are manual, so this grows until someone runs one -- it is a prompt, not a fault.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -155,7 +265,13 @@
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "colorMode": "background",
         "graphMode": "none",
         "textMode": "value"
@@ -167,9 +283,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1800 },
-              { "color": "red", "value": 3600 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 604800
+              },
+              {
+                "color": "red",
+                "value": 2592000
+              }
             ]
           }
         },
@@ -181,8 +306,16 @@
       "title": "Failing rules over time, by severity",
       "id": 6,
       "description": "The compliance drift line. A step up means a rule started failing somewhere in the estate.",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -191,8 +324,15 @@
         }
       ],
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "fieldConfig": {
         "defaults": {
@@ -208,15 +348,33 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "critical" },
+            "matcher": {
+              "id": "byName",
+              "options": "critical"
+            },
             "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "high" },
+            "matcher": {
+              "id": "byName",
+              "options": "high"
+            },
             "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
             ]
           }
         ]
@@ -227,8 +385,16 @@
       "title": "Device reachability",
       "id": 7,
       "description": "1 = the audit connected. Gaps mean the collector was not running.",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -237,8 +403,15 @@
         }
       ],
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "fieldConfig": {
         "defaults": {
@@ -261,8 +434,16 @@
       "type": "table",
       "title": "Per-device compliance",
       "id": 8,
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 13 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -290,21 +471,47 @@
         }
       ],
       "transformations": [
-        { "id": "joinByField", "options": { "byField": "device", "mode": "outer" } },
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "device",
+            "mode": "outer"
+          }
+        },
         {
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true,
-              "__name__": true, "__name__ 1": true, "__name__ 2": true,
-              "__name__ 3": true, "__name__ 4": true,
-              "job": true, "job 1": true, "job 2": true, "job 3": true, "job 4": true,
-              "instance": true, "instance 1": true, "instance 2": true,
-              "instance 3": true, "instance 4": true,
-              "status": true, "status 1": true, "status 2": true,
-              "status 3": true, "status 4": true,
-              "severity": true, "severity 1": true, "severity 2": true,
-              "severity 3": true, "severity 4": true
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "__name__": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "__name__ 4": true,
+              "job": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "job 4": true,
+              "instance": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "instance 4": true,
+              "status": true,
+              "status 1": true,
+              "status 2": true,
+              "status 3": true,
+              "status 4": true,
+              "severity": true,
+              "severity 1": true,
+              "severity 2": true,
+              "severity 3": true,
+              "severity 4": true
             },
             "renameByName": {
               "device": "Device",
@@ -319,10 +526,17 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto" } },
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Reachable" },
+            "matcher": {
+              "id": "byName",
+              "options": "Reachable"
+            },
             "properties": [
               {
                 "id": "mappings",
@@ -330,29 +544,56 @@
                   {
                     "type": "value",
                     "options": {
-                      "0": { "text": "no", "color": "red", "index": 0 },
-                      "1": { "text": "yes", "color": "green", "index": 1 }
+                      "0": {
+                        "text": "no",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "yes",
+                        "color": "green",
+                        "index": 1
+                      }
                     }
                   }
                 ]
               },
-              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Critical" },
+            "matcher": {
+              "id": "byName",
+              "options": "Critical"
+            },
             "properties": [
               {
                 "id": "thresholds",
                 "value": {
                   "mode": "absolute",
                   "steps": [
-                    { "color": "green", "value": null },
-                    { "color": "red", "value": 1 }
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
                   ]
                 }
               },
-              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
             ]
           }
         ]
@@ -363,8 +604,16 @@
       "title": "Currently failing rules",
       "id": 9,
       "description": "The actionable list: which rule, on which device. Sourced from netauto_rule_failed == 1.",
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 13 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -378,8 +627,11 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true, "__name__": true, "job": true,
-              "instance": true, "Value": true
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "instance": true,
+              "Value": true
             },
             "renameByName": {
               "device": "Device",
@@ -390,14 +642,29 @@
         },
         {
           "id": "sortBy",
-          "options": { "fields": {}, "sort": [{ "field": "Severity" }] }
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Severity"
+              }
+            ]
+          }
         }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto" }, "noValue": "Nothing failing" },
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          },
+          "noValue": "Nothing failing"
+        },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Severity" },
+            "matcher": {
+              "id": "byName",
+              "options": "Severity"
+            },
             "properties": [
               {
                 "id": "mappings",
@@ -405,15 +672,32 @@
                   {
                     "type": "value",
                     "options": {
-                      "critical": { "color": "red", "index": 0 },
-                      "high": { "color": "orange", "index": 1 },
-                      "medium": { "color": "yellow", "index": 2 },
-                      "low": { "color": "blue", "index": 3 }
+                      "critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "high": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "medium": {
+                        "color": "yellow",
+                        "index": 2
+                      },
+                      "low": {
+                        "color": "blue",
+                        "index": 3
+                      }
                     }
                   }
                 ]
               },
-              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
             ]
           }
         ]
@@ -423,11 +707,23 @@
       "type": "timeseries",
       "title": "Audit cycle duration",
       "id": 10,
-      "description": "How long a full pass over the estate takes. If this approaches NETAUTO_METRICS_INTERVAL, raise the interval or the concurrency.",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 23 },
-      "datasource": { "type": "prometheus", "uid": "netauto-prometheus" },
+      "description": "How long each device took on its last audit. Audits are triggered from the Audit page, not on a timer.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "netauto-prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "netauto_audit_cycle_seconds", "legendFormat": "full cycle" },
+        {
+          "refId": "A",
+          "expr": "netauto_audit_cycle_seconds",
+          "legendFormat": "full cycle"
+        },
         {
           "refId": "B",
           "expr": "netauto_device_audit_seconds{device=~\"$device\"}",
@@ -435,8 +731,15 @@
         }
       ],
       "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "fieldConfig": {
         "defaults": {
@@ -451,10 +754,22 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "full cycle" },
+            "matcher": {
+              "id": "byName",
+              "options": "full cycle"
+            },
             "properties": [
-              { "id": "custom.lineWidth", "value": 3 },
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
             ]
           }
         ]

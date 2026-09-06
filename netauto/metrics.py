@@ -33,9 +33,12 @@ from netauto.session import load_context
 
 log = logging.getLogger(__name__)
 
-# Fifteen minutes. Compliance drifts over days, not seconds, and every cycle
-# costs one session per device.
-DEFAULT_INTERVAL = 900
+# Audits are manual by default: every cycle opens a session per device, and
+# nobody wants their estate logged into on a timer they did not ask for.
+# Metrics are fed by the audits an operator actually runs. Setting
+# NETAUTO_METRICS_INTERVAL to a number of seconds opts in to a background
+# sweep as well, for anyone who does want one.
+MANUAL_ONLY = 0
 MIN_INTERVAL = 60
 
 NAMESPACE = "netauto"
@@ -57,6 +60,9 @@ class DeviceResult:
     config_lines: int = 0
     summary: dict[str, int] = field(default_factory=dict)
     findings: list[dict[str, Any]] = field(default_factory=list)
+    #: Unix time this device was last audited. With manual audits, devices go
+    #: stale at different rates, so staleness is per device rather than global.
+    audited_at: float = 0.0
 
 
 @dataclass
@@ -77,16 +83,40 @@ class Snapshot:
 # -- the collector -------------------------------------------------------
 
 
+def _result_from_report(report: dict[str, Any], *, seconds: float = 0.0,
+                        audited_at: float = 0.0) -> DeviceResult:
+    """Convert one audit_device report into a metrics result.
+
+    audit_device reports an unreachable device with an "error" key rather than
+    by raising, so reachability is read from the report body.
+    """
+    error = report.get("error", "")
+    return DeviceResult(
+        name=report["device"],
+        platform=report.get("platform", ""),
+        reachable=not error,
+        error=error,
+        seconds=seconds,
+        facts=report.get("facts") or {},
+        config_lines=report.get("config_lines", 0),
+        summary=report.get("summary") or {},
+        findings=report.get("findings") or [],
+        audited_at=audited_at or time.time(),
+    )
+
+
 def _interval_from_env() -> int:
-    raw = os.environ.get("NETAUTO_METRICS_INTERVAL", "")
+    """Seconds between background sweeps, or 0 for manual-only (the default)."""
+    raw = os.environ.get("NETAUTO_METRICS_INTERVAL", "").strip()
     if not raw:
-        return DEFAULT_INTERVAL
+        return MANUAL_ONLY
     try:
         value = int(raw)
     except ValueError:
-        log.warning("NETAUTO_METRICS_INTERVAL=%r is not a number; using %ds",
-                    raw, DEFAULT_INTERVAL)
-        return DEFAULT_INTERVAL
+        log.warning("NETAUTO_METRICS_INTERVAL=%r is not a number; staying manual", raw)
+        return MANUAL_ONLY
+    if value <= 0:
+        return MANUAL_ONLY
     if value < MIN_INTERVAL:
         # A tight loop here is device load, not just CPU.
         log.warning("NETAUTO_METRICS_INTERVAL=%ds is below the %ds floor; using the floor",
@@ -96,7 +126,12 @@ def _interval_from_env() -> int:
 
 
 class Collector:
-    """Audits the inventory on an interval and holds the last result."""
+    """Holds the last audit result per device, for the metrics endpoint.
+
+    Nothing here contacts a device on its own unless an interval was asked
+    for. The usual path is `record`, called with the results of an audit an
+    operator ran.
+    """
 
     def __init__(self, interval: int | None = None) -> None:
         self.interval = interval if interval is not None else _interval_from_env()
@@ -148,20 +183,32 @@ class Collector:
             return DeviceResult(name=device.name, platform=device.platform,
                                 reachable=False, error=str(exc),
                                 seconds=time.time() - started)
-        # audit_device reports an unreachable device as an "error" key rather
-        # than by raising, so reachability is read from the report.
-        error = report.get("error", "")
-        return DeviceResult(
-            name=report["device"],
-            platform=report["platform"],
-            reachable=not error,
-            error=error,
-            seconds=time.time() - started,
-            facts=report.get("facts") or {},
-            config_lines=report.get("config_lines", 0),
-            summary=report.get("summary") or {},
-            findings=report.get("findings") or [],
+        return _result_from_report(report, seconds=time.time() - started,
+                                   audited_at=time.time())
+
+    def record(self, reports: list[dict[str, Any]]) -> Snapshot:
+        """Fold the results of an audit into the snapshot.
+
+        Merged per device rather than replacing wholesale, because an audit is
+        usually scoped to one device or one tag. Replacing would drop every
+        device the operator did not just look at, and Prometheus would read
+        that as the estate shrinking.
+        """
+        merged = {r.name: r for r in self.snapshot.results}
+        now = time.time()
+        for report in reports:
+            name = report.get("device")
+            if not name:
+                continue
+            merged[name] = _result_from_report(report, audited_at=now)
+        snap = Snapshot(
+            results=sorted(merged.values(), key=lambda r: r.name),
+            finished=now,
+            seconds=0.0,
+            cycles=self.snapshot.cycles + 1,
         )
+        self._store(snap)
+        return snap
 
     def _store(self, snap: Snapshot) -> None:
         with self._lock:
@@ -169,7 +216,7 @@ class Collector:
 
     # -- background thread ------------------------------------------------
 
-    def _loop(self) -> None:
+    def _loop(self) -> None:  # only runs when an interval was configured
         while not self._stop.is_set():
             try:
                 self.collect_once()
@@ -178,6 +225,10 @@ class Collector:
             self._stop.wait(self.interval)
 
     def start(self) -> None:
+        """Start the background sweep, if one was asked for."""
+        if not self.interval:
+            log.info("metrics collector is manual: audits feed it, nothing polls")
+            return
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
@@ -258,8 +309,9 @@ def render(snapshot: Snapshot) -> str:
              [({}, len(snapshot.results))])
     w.family("audit_cycles_total", "counter",
              "Audit cycles completed since start.", [({}, snapshot.cycles)])
+    newest = max((r.audited_at for r in snapshot.results), default=snapshot.finished)
     w.family("last_audit_timestamp_seconds", "gauge",
-             "Unix time the last cycle finished.", [({}, snapshot.finished)])
+             "Unix time of the most recent audit of any device.", [({}, newest)])
     w.family("audit_cycle_seconds", "gauge",
              "Wall-clock duration of the last cycle.", [({}, snapshot.seconds)])
 
@@ -271,6 +323,11 @@ def render(snapshot: Snapshot) -> str:
     w.family("device_audit_seconds", "gauge",
              "Time taken to audit each device.",
              [({"device": r.name}, r.seconds) for r in results])
+    # Audits are manual, so devices go stale at different rates. A single
+    # global timestamp would hide a device nobody has looked at for months.
+    w.family("device_last_audit_timestamp_seconds", "gauge",
+             "Unix time each device was last audited.",
+             [({"device": r.name}, r.audited_at) for r in results])
     w.family("device_config_lines", "gauge",
              "Lines in the retrieved running config.",
              [({"device": r.name}, r.config_lines)

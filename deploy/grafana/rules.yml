@@ -1,62 +1,75 @@
 # Alerting rules for netauto.
 #
-# Thresholds are deliberately slack. A device is not "down" because one audit
-# cycle missed it, and a compliance finding is not an incident in the first
-# minute -- it has usually been true for months and nobody wants a page for it
-# at 03:00. These fire on things that have persisted.
+# Audits are manual: metrics change when an operator runs one, and sit still
+# in between. That rules out anything phrased as "in the last hour" -- between
+# audits every series is a flat line, so a rule comparing recent values to
+# slightly less recent ones would never fire. These compare against last week,
+# or watch for states that are wrong however long they have been true.
 
 groups:
   - name: netauto
     rules:
-      - alert: NetautoExporterDown
-        expr: netauto_up == 0
+      - alert: NetautoCollectorError
+        # The exporter could not read its own inventory or config. Distinct
+        # from having nothing to report, which is the normal state before the
+        # first audit and must not page anyone.
+        expr: netauto_collector_error == 1
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: Netauto has no usable audit cycle
+          summary: Netauto cannot read its inventory
           description: >-
-            The exporter has produced no completed cycle for 15 minutes. Check
-            `journalctl --user -u netauto-web` and the netauto_collector_error
-            series for the reason.
-
-      - alert: NetautoAuditStale
-        # Two full cycles at the 15-minute default, plus slack for a slow estate.
-        expr: time() - netauto_last_audit_timestamp_seconds > 2400
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: Netauto audits have stopped refreshing
-          description: >-
-            The last cycle finished
-            {{ $value | humanizeDuration }} ago. The collector thread may have
-            stalled on an unresponsive device.
+            {{ $labels.error }}. Check `journalctl --user -u netauto-web`.
 
       - alert: NetautoDeviceUnreachable
-        # Long window on purpose: a device is not down because one audit failed.
+        # Static between audits, so this says "the last audit could not reach
+        # it", not "it has been down for 45 minutes".
         expr: netauto_device_up == 0
         for: 45m
         labels:
           severity: warning
         annotations:
-          summary: "{{ $labels.device }} unreachable to netauto"
+          summary: "Last audit of {{ $labels.device }} could not reach it"
           description: >-
-            Audits of {{ $labels.device }} ({{ $labels.platform }}) have failed
-            for 45 minutes. This means netauto cannot reach or authenticate to
-            it -- the device itself may be fine.
+            netauto could not connect to or authenticate against
+            {{ $labels.device }} ({{ $labels.platform }}) on its most recent
+            audit. The device itself may be fine. Re-run the audit to clear.
+
+      - alert: NetautoDeviceNeverAudited
+        # A device in the inventory that no audit has ever covered reports a
+        # zero timestamp, which would otherwise look like 1970 on a dashboard.
+        expr: netauto_device_last_audit_timestamp_seconds == 0
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.device }} has never been audited"
+
+      - alert: NetautoAuditStale
+        # Thirty days. Audits are operator-driven, so "stale" is a question of
+        # policy rather than of the system misbehaving -- this is a nudge, not
+        # a fault.
+        expr: >-
+          netauto_device_last_audit_timestamp_seconds > 0
+          and time() - netauto_device_last_audit_timestamp_seconds > 2592000
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.device }} has not been audited in a month"
 
       - alert: NetautoCriticalFindingAppeared
-        # Fires on a *new* critical, not a standing one, so a known backlog does
-        # not alert forever. Compares against an hour ago.
+        # Against last week, not last hour: with manual audits an hour ago is
+        # usually the same audit, so the comparison would always be zero.
         expr: >-
           sum by (device) (netauto_findings_failed{severity="critical"})
-          > sum by (device) (netauto_findings_failed{severity="critical"} offset 1h)
+          > sum by (device) (netauto_findings_failed{severity="critical"} offset 7d)
         for: 30m
         labels:
           severity: critical
         annotations:
           summary: "New critical compliance finding on {{ $labels.device }}"
           description: >-
-            The count of critical findings on {{ $labels.device }} rose in the
-            last hour. See the Netauto Compliance dashboard for the rule.
+            Critical findings on {{ $labels.device }} rose against a week ago.
+            See the Netauto Compliance dashboard for the rule.
