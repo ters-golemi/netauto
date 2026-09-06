@@ -1,0 +1,62 @@
+# Alerting rules for netauto.
+#
+# Thresholds are deliberately slack. A device is not "down" because one audit
+# cycle missed it, and a compliance finding is not an incident in the first
+# minute -- it has usually been true for months and nobody wants a page for it
+# at 03:00. These fire on things that have persisted.
+
+groups:
+  - name: netauto
+    rules:
+      - alert: NetautoExporterDown
+        expr: netauto_up == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Netauto has no usable audit cycle
+          description: >-
+            The exporter has produced no completed cycle for 15 minutes. Check
+            `journalctl --user -u netauto-web` and the netauto_collector_error
+            series for the reason.
+
+      - alert: NetautoAuditStale
+        # Two full cycles at the 15-minute default, plus slack for a slow estate.
+        expr: time() - netauto_last_audit_timestamp_seconds > 2400
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Netauto audits have stopped refreshing
+          description: >-
+            The last cycle finished
+            {{ $value | humanizeDuration }} ago. The collector thread may have
+            stalled on an unresponsive device.
+
+      - alert: NetautoDeviceUnreachable
+        # Long window on purpose: a device is not down because one audit failed.
+        expr: netauto_device_up == 0
+        for: 45m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.device }} unreachable to netauto"
+          description: >-
+            Audits of {{ $labels.device }} ({{ $labels.platform }}) have failed
+            for 45 minutes. This means netauto cannot reach or authenticate to
+            it -- the device itself may be fine.
+
+      - alert: NetautoCriticalFindingAppeared
+        # Fires on a *new* critical, not a standing one, so a known backlog does
+        # not alert forever. Compares against an hour ago.
+        expr: >-
+          sum by (device) (netauto_findings_failed{severity="critical"})
+          > sum by (device) (netauto_findings_failed{severity="critical"} offset 1h)
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "New critical compliance finding on {{ $labels.device }}"
+          description: >-
+            The count of critical findings on {{ $labels.device }} rose in the
+            last hour. See the Netauto Compliance dashboard for the rule.

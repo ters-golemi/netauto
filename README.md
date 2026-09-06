@@ -137,6 +137,25 @@ middleware in `netauto/web/app.py`.
 **Still read-only.** A test asserts the only POST routes in the whole
 application are `/login` and `/logout`; every device route is a GET that reads.
 
+## Metrics and Grafana
+
+A Prometheus endpoint at `/metrics`, with a provisioned Grafana dashboard for
+compliance drift and device reachability over time. See
+[deploy/grafana/README.md](deploy/grafana/README.md).
+
+```bash
+cd deploy/grafana && docker compose up -d     # Grafana on 127.0.0.1:3000
+```
+
+Metrics are opt-in: with `NETAUTO_METRICS_TOKEN` unset the endpoint returns 404
+and no collector runs. Prometheus cannot hold a session cookie, so that token
+is the whole access control on the endpoint.
+
+**Scraping never touches a device.** A background collector audits on
+`NETAUTO_METRICS_INTERVAL` (900s by default, 60s floor) and caches the result;
+`/metrics` serves the cache. Letting a 30-second scrape drive real audits would
+mean logging in to every device in the estate twice a minute.
+
 ## Platforms and transports
 
 | Platform string | Transport | Library |
@@ -168,7 +187,7 @@ connect to nothing, so they unit-test against captured configs.
 
 ## Testing
 
-54 tests, no hardware required. The command guard has the heaviest coverage
+114 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 

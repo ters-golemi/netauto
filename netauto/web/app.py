@@ -10,6 +10,7 @@ on an internal network, never on a public address.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import os
 import secrets
@@ -18,13 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
-from netauto import __version__
+from netauto import __version__, metrics
 from netauto.audit import audit_device
 from netauto.drivers import supported_platforms
 from netauto.drivers.base import platform_family
@@ -53,7 +54,24 @@ def create_app(users: UserStore | None = None) -> FastAPI:
         )
     secret_key = os.environ.get("NETAUTO_SECRET_KEY") or secrets.token_urlsafe(48)
 
-    app = FastAPI(title="Netauto", docs_url=None, redoc_url=None)
+    # Metrics stay off unless a scrape token is set. Prometheus cannot hold a
+    # session cookie, so this endpoint sits outside the login wall entirely and
+    # the token is the only thing between a local process and your inventory.
+    metrics_token = os.environ.get("NETAUTO_METRICS_TOKEN", "")
+    collector = metrics.Collector() if metrics_token else None
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if collector:
+            collector.start()
+        try:
+            yield
+        finally:
+            if collector:
+                collector.stop()
+
+    app = FastAPI(title="Netauto", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app.state.collector = collector
     app.add_middleware(
         SessionMiddleware,
         secret_key=secret_key,
@@ -289,6 +307,25 @@ def create_app(users: UserStore | None = None) -> FastAPI:
     @app.get("/health")
     def health():
         return {"status": "ok", "version": __version__}
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    def prometheus_metrics(request: Request):
+        """Prometheus scrape target: serves the cached audit, never a live one.
+
+        Scraping this touches no device. The background collector is what talks
+        to the estate, on its own interval.
+        """
+        if collector is None:
+            return PlainTextResponse(
+                "Metrics are disabled. Set NETAUTO_METRICS_TOKEN to enable them.",
+                status_code=404)
+        supplied = request.headers.get("authorization", "")
+        if not hmac.compare_digest(supplied, f"Bearer {metrics_token}"):
+            # Not logged to the activity log: Prometheus scrapes every 30s and
+            # would drown the record of what people did.
+            return PlainTextResponse("Unauthorized", status_code=401)
+        return PlainTextResponse(metrics.render(collector.snapshot),
+                                 media_type=metrics.CONTENT_TYPE)
 
     return app
 

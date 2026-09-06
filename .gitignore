@@ -14,3 +14,7 @@ baselines/
 # Accounts and activity log are per-deployment.
 users.yaml
 activity.log
+
+# Prometheus scrape token, generated per deployment.
+deploy/grafana/scrape-token
+deploy/grafana/.env

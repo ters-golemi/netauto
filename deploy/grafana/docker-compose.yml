@@ -1,0 +1,61 @@
+# Grafana and Prometheus for netauto.
+#
+#   cd deploy/grafana && docker compose up -d
+#
+# Both containers run on the host network, deliberately. Netauto binds
+# 127.0.0.1 only, and a container on a bridge network cannot reach the host's
+# loopback -- host.docker.internal gets you the host's *external* address, not
+# 127.0.0.1. Host networking is what lets Prometheus scrape localhost:8080
+# without exposing netauto to the network.
+#
+# Host networking also means the containers do NOT get Docker's port mapping,
+# so each one binds its own listen address explicitly below. Both stay on
+# loopback. Check with: ss -tlnp | grep -E '3000|9090'
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: netauto-prometheus
+    network_mode: host
+    restart: unless-stopped
+    user: "65534:65534"          # nobody; the volume is chowned by the image
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 90 days of history. Compliance drift is a slow story.
+      - --storage.tsdb.retention.time=90d
+      # Loopback only. Without this, host networking would bind 0.0.0.0.
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yml:/etc/prometheus/rules.yml:ro
+      - ./scrape-token:/etc/prometheus/scrape-token:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    container_name: netauto-grafana
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      # Loopback only, for the same reason as Prometheus above.
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3000"
+      # This dashboard shows device names, OS versions and serials. Keep the
+      # login on even though it is bound to loopback.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in deploy/grafana/.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  prometheus-data:
+  grafana-data:

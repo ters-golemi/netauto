@@ -1,0 +1,16 @@
+apiVersion: 1
+
+providers:
+  - name: netauto
+    orgId: 1
+    folder: Netauto
+    type: file
+    disableDeletion: false
+    # Edits in the UI are overwritten from disk on the next scan. Change the
+    # JSON in deploy/grafana/dashboards/ so the dashboard stays in version
+    # control rather than living only in Grafana's database.
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

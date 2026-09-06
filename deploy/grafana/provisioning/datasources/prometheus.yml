@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: netauto-prometheus
+    type: prometheus
+    access: proxy
+    # Loopback: the Grafana container is on the host network too.
+    url: http://127.0.0.1:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Should match Prometheus's own scrape_interval, so Grafana picks sane
+      # step sizes and does not draw gaps that are not there.
+      timeInterval: 30s
