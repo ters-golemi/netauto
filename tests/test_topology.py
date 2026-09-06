@@ -171,7 +171,7 @@ def _sample():
     topo.nodes["rtr"] = Node("rtr", known=True, platform="juniper_junos", tier="edge")
     topo.nodes["sw"] = Node("sw", known=True, platform="cisco_ios", tier="core")
     topo.nodes["fw"] = Node("fw", known=True, platform="fortinet_fortios", tier="edge")
-    topo.nodes["ap"] = Node("ap", known=False, tier="access")
+    topo.nodes["ap"] = Node("ap", known=False, tier="discovered")
     topo.links = [
         topology.Link("rtr", "ge-0/0/0", "sw", "Te1/1/1", confirmed=True),
         topology.Link("sw", "Gi1/0/12", "ap", "eth0", confirmed=False),
@@ -188,12 +188,15 @@ def test_drawio_picks_a_stencil_per_platform():
     shapes = {}
     for obj in root.iter("UserObject"):
         style = obj.find("mxCell").get("style")
-        shapes[obj.get("label").split("<")[0]] = next(
-            s.split("=", 1)[1] for s in style.split(";") if s.startswith("shape="))
+        found = [s.split("=", 1)[1] for s in style.split(";") if s.startswith("shape=")]
+        if found:
+            shapes[obj.get("label").split("<")[0]] = found[0]
     assert shapes["rtr"] == drawio.SHAPE_ROUTER
     assert shapes["fw"] == drawio.SHAPE_FIREWALL
     assert shapes["sw"] == drawio.SHAPE_SWITCH
-    assert shapes["ap"] == drawio.SHAPE_UNKNOWN
+    # A discovered device gets no icon at all: it could be an AP, a phone or
+    # a server, and asserting one would be a claim we cannot support.
+    assert "ap" not in shapes
 
 
 def test_drawio_uses_orthogonal_connectors():

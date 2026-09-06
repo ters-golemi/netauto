@@ -23,13 +23,21 @@ from xml.sax.saxutils import escape, quoteattr
 
 from netauto.topology import TIER_ORDER, Node, Topology
 
-#: draw.io's built-in Networking stencils, which ship with every install --
-#: no custom shape library for someone to be missing.
-SHAPE_SWITCH = "mxgraph.networks.switch"
-SHAPE_ROUTER = "mxgraph.networks.router"
-SHAPE_FIREWALL = "mxgraph.networks.firewall"
-SHAPE_CLOUD = "mxgraph.networks.cloud"
-SHAPE_UNKNOWN = "mxgraph.networks.unknown_device"
+#: draw.io's Cisco stencils. Chosen over the flat mxgraph.networks set because
+#: those render a router and a switch as near-identical barrels -- the classic
+#: Cisco iconography is what makes a device type readable at a glance, and is
+#: what people mean by a Visio-style network diagram.
+SHAPE_SWITCH = "mxgraph.cisco.switches.layer_3_switch"
+SHAPE_ACCESS_SWITCH = "mxgraph.cisco.switches.workgroup_switch"
+SHAPE_ROUTER = "mxgraph.cisco.routers.router"
+SHAPE_FIREWALL = "mxgraph.cisco.security.firewall"
+SHAPE_CLOUD = "mxgraph.cisco.storage.cloud"
+
+#: Deliberately not a stencil. A device seen only over LLDP could be an AP, a
+#: phone or a server, and picking an icon would assert something we do not
+#: know. mxgraph.networks.unknown_device is not a real shape -- it renders as
+#: a blank square -- so a plain dashed box it is, which reads as intentional.
+SHAPE_UNKNOWN = ""
 
 #: Tier -> fill. Cool colours up top, warmer at the access layer, so the
 #: hierarchy reads at a glance even printed in greyscale.
@@ -38,6 +46,7 @@ TIER_FILL = {
     "core": "#1F6FB2",
     "distribution": "#2E8B76",
     "access": "#8A6D1F",
+    "discovered": "#8C8C8C",
     "unknown": "#666666",
 }
 
@@ -57,17 +66,26 @@ def shape_for(node: Node) -> str:
         return SHAPE_CLOUD
     if "xr" in p or "junos" in p or node.tier == "edge":
         return SHAPE_ROUTER
+    if node.tier == "access":
+        return SHAPE_ACCESS_SWITCH
     return SHAPE_SWITCH
 
 
 def _node_style(node: Node) -> str:
     fill = TIER_FILL.get(node.tier, TIER_FILL["unknown"])
-    dashed = "1" if not node.known else "0"
+    shape = shape_for(node)
+    if not shape:
+        # Discovered devices: a dashed rounded box, no icon claimed.
+        return (
+            f"rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=6 4;"
+            f"fillColor=none;strokeColor={fill};strokeWidth=2;"
+            f"fontColor={fill};verticalAlign=middle;align=center;"
+        )
     return (
         f"sketch=0;html=1;aspect=fixed;verticalLabelPosition=bottom;"
         f"verticalAlign=top;align=center;outlineConnect=0;"
-        f"shape={shape_for(node)};fillColor={fill};strokeColor=#FFFFFF;"
-        f"strokeWidth=2;dashed={dashed};"
+        f"shape={shape};fillColor={fill};strokeColor=#FFFFFF;"
+        f"strokeWidth=2;dashed=0;"
     )
 
 

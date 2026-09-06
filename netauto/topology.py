@@ -40,7 +40,7 @@ TIER_TAGS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("access", ("access", "edge-switch", "user")),
 )
 
-TIER_ORDER = ("edge", "core", "distribution", "access", "unknown")
+TIER_ORDER = ("edge", "core", "distribution", "access", "discovered", "unknown")
 
 
 def tier_for(device: Device | None, tags: Iterable[str] = ()) -> str:
@@ -192,7 +192,7 @@ def build(inventory: Inventory, settings: Settings,
                 remote_name = remote_raw.strip()
                 if remote_name not in topo.nodes:
                     topo.nodes[remote_name] = Node(
-                        name=remote_name, known=False,
+                        name=remote_name, known=False, tier="discovered",
                         description=str(row.get("remote_description", "") or "")[:200],
                     )
                 by_norm[remote_norm] = remote_name
