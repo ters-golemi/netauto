@@ -148,6 +148,74 @@ def _collect_one(device: Device, settings: Settings) -> tuple[str, list[dict], s
         return device.name, [], str(exc)
 
 
+def _compatible(left: dict[str, Any], right: dict[str, Any], *, exact: bool) -> bool:
+    """Could these two half-links be the same cable seen from both ends?
+
+    `left` is what A said about B, `right` what B said about A, so A's local
+    port should be B's remote port and vice versa.
+    """
+    if exact:
+        return bool(left["local"] and left["remote"] and right["local"] and right["remote"]
+                    and left["local"] == right["remote"]
+                    and left["remote"] == right["local"])
+    # A device may report its own port but not the neighbour's. A blank is
+    # unknown, not a mismatch, so it matches anything.
+    ends_agree = not left["local"] or not right["remote"] or left["local"] == right["remote"]
+    peers_agree = not left["remote"] or not right["local"] or left["remote"] == right["local"]
+    return ends_agree and peers_agree
+
+
+def _merge_halves(entries: list[dict[str, Any]]) -> list[Link]:
+    """Turn one pair's half-links into cables.
+
+    A pair has at most two reporters, since a link has two ends. Exact port
+    agreement is matched first so that a port-channel pairs Gi1/0/1 with its
+    real partner rather than with whichever half happened to come first.
+    """
+    by_reporter: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        by_reporter.setdefault(entry["reporter"], []).append(entry)
+
+    reporters = sorted(by_reporter)
+    if len(reporters) == 1:
+        # Only one end reported: every row is its own unconfirmed cable.
+        return [Link(a=e["reporter"], a_port=e["local"], b=e["peer"],
+                     b_port=e["remote"], confirmed=False)
+                for e in by_reporter[reporters[0]]]
+
+    left, right = by_reporter[reporters[0]], by_reporter[reporters[1]]
+    links: list[Link] = []
+    matched_left: set[int] = set()
+    matched_right: set[int] = set()
+
+    for exact in (True, False):
+        for i, l in enumerate(left):
+            if i in matched_left:
+                continue
+            for j, r in enumerate(right):
+                if j in matched_right or not _compatible(l, r, exact=exact):
+                    continue
+                links.append(Link(
+                    a=l["reporter"], a_port=l["local"] or r["remote"],
+                    b=r["reporter"], b_port=r["local"] or l["remote"],
+                    confirmed=True,
+                ))
+                matched_left.add(i)
+                matched_right.add(j)
+                break
+
+    # Halves with no partner are still cables; one end simply did not see them.
+    for i, l in enumerate(left):
+        if i not in matched_left:
+            links.append(Link(a=l["reporter"], a_port=l["local"], b=l["peer"],
+                              b_port=l["remote"], confirmed=False))
+    for j, r in enumerate(right):
+        if j not in matched_right:
+            links.append(Link(a=r["reporter"], a_port=r["local"], b=r["peer"],
+                              b_port=r["remote"], confirmed=False))
+    return links
+
+
 def build(inventory: Inventory, settings: Settings,
           devices: list[Device] | None = None) -> Topology:
     """Collect neighbours across the inventory and assemble the graph."""
@@ -171,9 +239,11 @@ def build(inventory: Inventory, settings: Settings,
     with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(lambda d: _collect_one(d, settings), targets))
 
-    # Half-links keyed by (normalised endpoint pair) so the two reported
-    # directions of one cable can be merged.
-    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    # Half-links grouped by endpoint pair. Grouping is not enough on its own
+    # to identify a cable: a port-channel puts several cables between the same
+    # two switches, so the halves within a pair still have to be matched up by
+    # port before they can be merged.
+    halves: dict[tuple[str, str], list[dict[str, Any]]] = {}
 
     for name, rows, error in results:
         if error:
@@ -197,30 +267,16 @@ def build(inventory: Inventory, settings: Settings,
                     )
                 by_norm[remote_norm] = remote_name
 
-            local_port = str(row.get("local_port", "") or "")
-            remote_port = str(row.get("remote_port", "") or "")
             pair = tuple(sorted((normalise_host(name), remote_norm)))
-            entry = seen.get(pair)
-            if entry is None:
-                seen[pair] = {
-                    "a": name, "a_port": local_port,
-                    "b": remote_name, "b_port": remote_port,
-                    "reporters": {name},
-                }
-            else:
-                entry["reporters"].add(name)
-                # The far end's report fills in whichever port we lacked.
-                if entry["a"] == remote_name and not entry["a_port"]:
-                    entry["a_port"] = remote_port
-                if entry["b"] == name and not entry["b_port"]:
-                    entry["b_port"] = local_port
+            halves.setdefault(pair, []).append({
+                "reporter": name,
+                "peer": remote_name,
+                "local": str(row.get("local_port", "") or ""),
+                "remote": str(row.get("remote_port", "") or ""),
+            })
 
-    for entry in seen.values():
-        topo.links.append(Link(
-            a=entry["a"], a_port=entry["a_port"],
-            b=entry["b"], b_port=entry["b_port"],
-            confirmed=len(entry["reporters"]) > 1,
-        ))
+    for entries in halves.values():
+        topo.links.extend(_merge_halves(entries))
     topo.links.sort(key=lambda link: (link.a, link.b))
 
     for link in topo.links:

@@ -90,6 +90,57 @@ def test_hostname_case_and_domain_do_not_duplicate_a_device(fake_neighbors, repo
     assert topo.discovered_nodes == []
 
 
+def test_a_port_channel_stays_two_cables(fake_neighbors):
+    """Two links between the same pair are two links, not one.
+
+    Keying a cable on its endpoints alone silently drops every member of a
+    port-channel but the first -- and redundancy between core switches is
+    exactly what someone opens a topology diagram to check.
+    """
+    fake_neighbors["sw1"] = [
+        {"local_port": "Gi1/0/1", "remote_host": "sw2", "remote_port": "Gi0/1"},
+        {"local_port": "Gi1/0/2", "remote_host": "sw2", "remote_port": "Gi0/2"},
+    ]
+    fake_neighbors["sw2"] = [
+        {"local_port": "Gi0/1", "remote_host": "sw1", "remote_port": "Gi1/0/1"},
+        {"local_port": "Gi0/2", "remote_host": "sw1", "remote_port": "Gi1/0/2"},
+    ]
+    topo = topology.build(_inventory(_dev("sw1"), _dev("sw2")), _settings())
+    assert len(topo.links) == 2
+    assert all(link.confirmed for link in topo.links)
+    assert {link.a_port for link in topo.links} == {"Gi1/0/1", "Gi1/0/2"}
+
+
+def test_port_channel_members_pair_by_port_not_by_order(fake_neighbors):
+    """Members must pair with their real partner, not whichever came first."""
+    fake_neighbors["sw1"] = [
+        {"local_port": "Gi1/0/1", "remote_host": "sw2", "remote_port": "Gi0/1"},
+        {"local_port": "Gi1/0/2", "remote_host": "sw2", "remote_port": "Gi0/2"},
+    ]
+    # Reported in the opposite order by the far end.
+    fake_neighbors["sw2"] = [
+        {"local_port": "Gi0/2", "remote_host": "sw1", "remote_port": "Gi1/0/2"},
+        {"local_port": "Gi0/1", "remote_host": "sw1", "remote_port": "Gi1/0/1"},
+    ]
+    topo = topology.build(_inventory(_dev("sw1"), _dev("sw2")), _settings())
+    pairs = {(link.a_port, link.b_port) for link in topo.links}
+    assert pairs == {("Gi1/0/1", "Gi0/1"), ("Gi1/0/2", "Gi0/2")}
+
+
+def test_port_channel_member_the_far_end_missed_is_still_drawn(fake_neighbors):
+    """One confirmed member, one the far end did not report -- both are cables."""
+    fake_neighbors["sw1"] = [
+        {"local_port": "Gi1/0/1", "remote_host": "sw2", "remote_port": "Gi0/1"},
+        {"local_port": "Gi1/0/2", "remote_host": "sw2", "remote_port": "Gi0/2"},
+    ]
+    fake_neighbors["sw2"] = [
+        {"local_port": "Gi0/1", "remote_host": "sw1", "remote_port": "Gi1/0/1"},
+    ]
+    topo = topology.build(_inventory(_dev("sw1"), _dev("sw2")), _settings())
+    assert len(topo.links) == 2
+    assert sorted(link.confirmed for link in topo.links) == [False, True]
+
+
 def test_neighbour_absent_from_inventory_becomes_a_discovered_node(fake_neighbors):
     fake_neighbors["sw1"] = [{"local_port": "Gi12", "remote_host": "ap-lobby",
                               "remote_port": "eth0",
@@ -197,6 +248,45 @@ def test_drawio_picks_a_stencil_per_platform():
     # A discovered device gets no icon at all: it could be an AP, a phone or
     # a server, and asserting one would be a claim we cannot support.
     assert "ap" not in shapes
+
+
+def _edge_anchors(xml):
+    """Anchor styles per edge, in document order."""
+    root = ET.fromstring(xml)
+    out = []
+    for c in root.iter("mxCell"):
+        if c.get("edge") != "1":
+            continue
+        style = c.get("style")
+        out.append(";".join(s for s in style.split(";")
+                            if s.startswith(("exitX", "exitY", "entryX", "entryY"))))
+    return out
+
+
+def test_port_channel_members_do_not_stack_on_one_path():
+    """Two edges with the same endpoints get identical geometry by default.
+
+    Without distinct anchors a two-member port-channel renders as a single
+    line, which would undo the link matching in the picture.
+    """
+    topo = Topology()
+    topo.nodes["a"] = Node("a", known=True, platform="cisco_ios", tier="core")
+    topo.nodes["b"] = Node("b", known=True, platform="cisco_ios", tier="core")
+    topo.links = [topology.Link("a", "Te1/1/2", "b", "Te1/1/2", confirmed=True),
+                  topology.Link("a", "Te1/1/3", "b", "Te1/1/3", confirmed=True)]
+    anchors = _edge_anchors(drawio.render(topo))
+    assert len(anchors) == 2
+    assert all(anchors), "parallel edges must carry explicit anchors"
+    assert anchors[0] != anchors[1], "parallel edges must not share a path"
+
+
+def test_a_single_link_keeps_default_routing():
+    """Only parallel edges need pinning; the rest should route freely."""
+    topo = Topology()
+    topo.nodes["a"] = Node("a", known=True, platform="cisco_ios", tier="core")
+    topo.nodes["b"] = Node("b", known=True, platform="cisco_nxos", tier="distribution")
+    topo.links = [topology.Link("a", "Gi1", "b", "Eth1", confirmed=True)]
+    assert _edge_anchors(drawio.render(topo)) == [""]
 
 
 def test_drawio_uses_orthogonal_connectors():

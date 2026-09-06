@@ -18,7 +18,6 @@ to it.
 
 from __future__ import annotations
 
-from typing import Any
 from xml.sax.saxutils import escape, quoteattr
 
 from netauto.topology import TIER_ORDER, Node, Topology
@@ -87,6 +86,29 @@ def _node_style(node: Node) -> str:
         f"shape={shape};fillColor={fill};strokeColor=#FFFFFF;"
         f"strokeWidth=2;dashed=0;"
     )
+
+
+def _parallel_anchors(src: tuple[int, int], dst: tuple[int, int],
+                      index: int, total: int) -> str:
+    """Spread the members of a port-channel across the device faces.
+
+    Two edges with the same source and target get identical orthogonal
+    geometry, so they stack exactly on top of each other and a two-member
+    port-channel looks like a single cable -- which is the very thing the
+    link matching went to trouble to preserve.
+    """
+    if total < 2:
+        return ""
+    fraction = round((index + 1) / (total + 1), 3)
+    if src[1] == dst[1]:
+        # Same row: the cables leave the left and right faces, spread vertically.
+        exit_x, entry_x = (1, 0) if src[0] < dst[0] else (0, 1)
+        return (f"exitX={exit_x};exitY={fraction};exitDx=0;exitDy=0;"
+                f"entryX={entry_x};entryY={fraction};entryDx=0;entryDy=0;")
+    # Different rows: top and bottom faces, spread horizontally.
+    exit_y, entry_y = (1, 0) if src[1] < dst[1] else (0, 1)
+    return (f"exitX={fraction};exitY={exit_y};exitDx=0;exitDy=0;"
+            f"entryX={fraction};entryY={entry_y};entryDx=0;entryDy=0;")
 
 
 def _edge_style(confirmed: bool) -> str:
@@ -194,14 +216,25 @@ def render(topo: Topology, title: str = "Network topology") -> str:
             f'        </UserObject>'
         )
 
+    # How many cables run between each pair, so that port-channel members can
+    # be spread across the device faces instead of stacking on one path.
+    pair_total: dict[tuple[str, str], int] = {}
+    for link in topo.links:
+        pair_total[link.key] = pair_total.get(link.key, 0) + 1
+    pair_seen: dict[tuple[str, str], int] = {}
+
     for i, link in enumerate(topo.links, start=1):
         src, dst = ids.get(link.a), ids.get(link.b)
         if not src or not dst:
             continue
         eid = _cell_id("e", i)
+        index = pair_seen.get(link.key, 0)
+        pair_seen[link.key] = index + 1
+        anchors = _parallel_anchors(pos.get(link.a, (0, 0)), pos.get(link.b, (0, 0)),
+                                    index, pair_total[link.key])
         parts.append(
             f'        <mxCell id={quoteattr(eid)} value="" '
-            f'style={quoteattr(_edge_style(link.confirmed))} edge="1" parent="1" '
+            f'style={quoteattr(_edge_style(link.confirmed) + anchors)} edge="1" parent="1" '
             f'source={quoteattr(src)} target={quoteattr(dst)}>\n'
             f'          <mxGeometry relative="1" as="geometry" />\n'
             f'        </mxCell>'
