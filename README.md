@@ -171,6 +171,11 @@ their synonyms) and fall back to link count when a device carries none. LLDP
 must be enabled on the devices; nothing appears for a link neither end
 advertises.
 
+Every member of a port-channel is kept as its own cable rather than merged
+into one, since redundancy between core switches is usually the point of
+looking. The exported file carries a caption with the collection time — an
+undated network diagram is worse than none a year later.
+
 ## Metrics and Grafana
 
 A Prometheus endpoint at `/metrics`, with a provisioned Grafana dashboard for
@@ -221,7 +226,7 @@ connect to nothing, so they unit-test against captured configs.
 
 ## Testing
 
-173 tests, no hardware required. The command guard has the heaviest coverage
+181 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 

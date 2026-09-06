@@ -18,7 +18,7 @@ to it.
 
 from __future__ import annotations
 
-from xml.sax.saxutils import escape, quoteattr
+from xml.sax.saxutils import quoteattr
 
 from netauto.topology import TIER_ORDER, Node, Topology
 
@@ -216,6 +216,21 @@ def render(topo: Topology, title: str = "Network topology") -> str:
             f'        </UserObject>'
         )
 
+    # A caption, because this file is meant to end up in documentation and an
+    # undated network diagram is actively misleading a year later.
+    caption = " · ".join(filter(None, [
+        title,
+        f"collected {topo.collected_label}" if topo.collected_label else "",
+        legend_note(topo),
+    ]))
+    parts.insert(0,
+        f'        <mxCell id="caption" value={quoteattr(caption)} '
+        f'style="text;html=1;fontSize=11;fontColor=#666666;align=left;'
+        f'verticalAlign=middle;resizable=0;" vertex="1" parent="1">\n'
+        f'          <mxGeometry x="{MARGIN_X}" y="14" width="900" height="22" '
+        f'as="geometry" />\n'
+        f'        </mxCell>')
+
     # How many cables run between each pair, so that port-channel members can
     # be spread across the device faces instead of stacking on one path.
     pair_total: dict[tuple[str, str], int] = {}
@@ -274,7 +289,12 @@ def render(topo: Topology, title: str = "Network topology") -> str:
 
 
 def legend_note(topo: Topology) -> str:
-    """One line describing what the reader is looking at."""
+    """One line describing what the reader is looking at.
+
+    Returned unescaped. Callers escape for their own context -- quoteattr for
+    the XML attribute, Jinja's autoescaping in the template -- and escaping
+    here as well would show entities to the reader.
+    """
     d = len(topo.discovered_nodes)
     known, links = len(topo.known_nodes), len(topo.links)
     parts = [f"{known} inventory device{'s' if known != 1 else ''}",
@@ -284,4 +304,4 @@ def legend_note(topo: Topology) -> str:
     if topo.gaps:
         n = len(topo.gaps)
         parts.append(f"{n} device{'s' if n != 1 else ''} contributed nothing")
-    return escape(", ".join(parts))
+    return ", ".join(parts)

@@ -480,3 +480,68 @@ def test_tag_filter_reaches_the_download(client, monkeypatch):
 
     monkeypatch.setattr(topology, "build", build)
     assert client.get("/topology.drawio?tag=core").status_code == 200
+
+
+# -- dating the diagram --------------------------------------------------
+
+
+def test_a_collected_graph_is_dated(fake_neighbors):
+    fake_neighbors["sw1"] = []
+    topo = topology.build(_inventory(_dev("sw1")), _settings())
+    assert topo.collected_at > 0
+    assert topo.collected_label
+
+
+def test_an_uncollected_graph_claims_no_date():
+    """A hand-built or empty graph must not present itself as a survey."""
+    assert Topology().collected_label == ""
+
+
+def _caption(xml):
+    root = ET.fromstring(xml)
+    for c in root.iter("mxCell"):
+        if c.get("id") == "caption":
+            return c.get("value")
+    return None
+
+
+def test_the_exported_file_carries_a_caption_with_the_date(fake_neighbors):
+    """An undated network diagram is misleading once it is a year old."""
+    fake_neighbors["sw1"] = []
+    topo = topology.build(_inventory(_dev("sw1")), _settings())
+    caption = _caption(drawio.render(topo, title="Campus"))
+    assert caption.startswith("Campus")
+    assert topo.collected_label in caption
+    assert "1 inventory device" in caption
+
+
+def test_the_caption_omits_a_date_it_does_not_have():
+    caption = _caption(drawio.render(Topology()))
+    assert caption is not None
+    assert "collected" not in caption
+
+
+def test_as_dict_reports_when_it_was_collected(fake_neighbors):
+    fake_neighbors["sw1"] = []
+    topo = topology.build(_inventory(_dev("sw1")), _settings())
+    assert topology.as_dict(topo)["collected_at"] == topo.collected_label
+
+
+def test_legend_note_is_not_pre_escaped():
+    """Escaping here would double-escape under quoteattr and Jinja alike."""
+    topo = Topology()
+    topo.nodes['sw"1'] = Node('sw"1', known=True, platform="cisco_ios", tier="core")
+    assert "&quot;" not in drawio.legend_note(topo)
+
+
+def test_page_shows_when_the_graph_was_collected(client, monkeypatch):
+    built = _populated()
+    built.collected_at = 1_700_000_000.0
+    monkeypatch.setattr(topology, "build", lambda *a, **kw: built)
+    assert built.collected_label in client.get("/topology?run=1").text
+
+
+def test_an_empty_inventory_run_is_still_dated():
+    """Finding nothing is a result; only a graph never built has no date."""
+    topo = topology.build(_inventory(), _settings())
+    assert topo.collected_at > 0

@@ -23,7 +23,8 @@
 
 {% if topo %}
 <div class="headrow">
-  <p class="filterbar">{{ legend }}</p>
+  <p class="filterbar">{{ legend }}{% if topo.collected_label %}
+     <span class="muted">&middot; collected {{ topo.collected_label }}</span>{% endif %}</p>
   <span>
     <a class="linkout" href="/topology.drawio{{ '?tag=' ~ tag if tag }}">Download .drawio &#8595;</a>
     <a class="linkout" href="/topology.json{{ '?tag=' ~ tag if tag }}">JSON &#8595;</a>

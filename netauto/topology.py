@@ -20,6 +20,7 @@ Read-only throughout: this asks devices what they can see and nothing else.
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Iterable
@@ -106,6 +107,16 @@ class Topology:
     links: list[Link] = field(default_factory=list)
     #: device name -> why it contributed nothing.
     gaps: dict[str, str] = field(default_factory=dict)
+    #: Unix time the collection finished. 0 when the graph was never collected.
+    #: An undated network diagram is worse than no diagram a year later, so
+    #: this is stamped onto the exported file as well as shown on the page.
+    collected_at: float = 0.0
+
+    @property
+    def collected_label(self) -> str:
+        if not self.collected_at:
+            return ""
+        return time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(self.collected_at))
 
     @property
     def known_nodes(self) -> list[Node]:
@@ -238,6 +249,9 @@ def build(inventory: Inventory, settings: Settings,
         by_norm[key] = device.name
 
     if not targets:
+        # A survey of nothing is still a survey, and it happened at a time.
+        # Only a graph that was never collected carries no date.
+        topo.collected_at = time.time()
         return topo
 
     workers = max(1, min(settings.max_concurrency, len(targets)))
@@ -316,6 +330,7 @@ def build(inventory: Inventory, settings: Settings,
             else:
                 node.tier = "access"
 
+    topo.collected_at = time.time()
     return topo
 
 
@@ -332,6 +347,7 @@ def as_dict(topo: Topology) -> dict[str, Any]:
              "b_port": link.b_port, "confirmed": link.confirmed}
             for link in topo.links
         ],
+        "collected_at": topo.collected_label,
         "gaps": dict(sorted(topo.gaps.items())),
         "summary": {
             "devices": len(topo.known_nodes),
