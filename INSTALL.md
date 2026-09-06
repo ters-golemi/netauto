@@ -107,7 +107,7 @@ sudo -u netauto .venv/bin/pip install -r requirements-dev.txt
 sudo -u netauto .venv/bin/python -m pytest tests/ -q
 ```
 
-You should see **190 passed**. These tests need no network devices, so this
+You should see **192 passed**. These tests need no network devices, so this
 validates the install before any device credentials exist.
 
 ## 5. Let discovery work without root
@@ -281,7 +281,8 @@ server {
     add_header X-Frame-Options DENY always;
     add_header X-Content-Type-Options nosniff always;
 
-    # Audits and sweeps are slow; do not cut them off mid-run.
+    # Audits, topology runs and sweeps are slow -- each opens a session per
+    # device -- so do not cut them off mid-run.
     proxy_read_timeout 300s;
 
     location / {
@@ -341,7 +342,7 @@ Port 8080 needs no rule — the service binds to localhost only.
 | TLS responds | `curl -kI https://localhost/` | `303` to `/login` |
 | Auth is enforced | `curl -ks https://localhost/devices \| head -1` | redirect, not device data |
 | Accounts exist | `manage list` (step 8 form) | your admin account |
-| Tests | `.venv/bin/python -m pytest tests/ -q` | `190 passed` |
+| Tests | `.venv/bin/python -m pytest tests/ -q` | `192 passed` |
 
 Then open `https://<vm>/` in a browser, sign in, and confirm the device list
 loads. Inspecting a device opens a live connection using the credentials from
@@ -364,11 +365,25 @@ cannot read the activity log.
 
 ```bash
 sudo tail -f /var/lib/netauto/activity.log
-sudo grep '"action":"run-command"' /var/lib/netauto/activity.log | tail -20
+sudo grep '"action": "run-command"' /var/lib/netauto/activity.log | tail -20
 ```
 
 JSON lines, one per action, attributed to an account. Admins can read the same
 thing at `/activity`.
+
+Mind the space after the colon: the log is written by `json.dumps`, so
+`'"action":"run-command"'` matches nothing and reads as "no commands were ever
+run", which is the wrong answer to an audit question. When it matters, parse
+rather than grep:
+
+```bash
+sudo python3 -c '
+import json, sys
+for line in open("/var/lib/netauto/activity.log"):
+    e = json.loads(line)
+    if e["action"] == "run-command":
+        print(e["ts"], e["user"], e["target"], e["detail"])'
+```
 
 **Service logs.**
 
@@ -419,8 +434,9 @@ is the intended failure: credentials are never read from the inventory.
 **Signed out after every restart** — `NETAUTO_SECRET_KEY` is unset, so a new
 one is generated each boot. Set it in the env file.
 
-**Audit times out in the browser** — raise `proxy_read_timeout` in nginx. A
-large estate audited serially takes minutes.
+**Audit or topology times out in the browser** — raise `proxy_read_timeout` in
+nginx. Both open a session per device and run while the request is held open,
+so a large estate takes minutes.
 
 ## Uninstalling
 
