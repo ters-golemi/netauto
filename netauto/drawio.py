@@ -105,18 +105,54 @@ _LABEL_STYLE = ("edgeLabel;html=1;align=center;verticalAlign=middle;"
 
 
 def _positions(topo: Topology) -> dict[str, tuple[int, int]]:
-    """Tiered rows, each centred over the widest row."""
+    """Tiered rows, each row ordered and placed under the devices it attaches to.
+
+    Centring every row independently is what makes a diagram lie: a device
+    lands under whatever happens to be in the middle of the row above, and the
+    orthogonal router then draws its link along the row and down, so it appears
+    to hang off a switch it has no cable to.
+
+    So each row is ordered by the average x of its already-placed neighbours --
+    the barycentre heuristic, one pass -- and then shifted to sit under them.
+    """
     tiers = topo.by_tier()
     ordered = [t for t in TIER_ORDER if t in tiers]
     widest = max((len(tiers[t]) for t in ordered), default=1)
+
+    adjacent: dict[str, list[str]] = {}
+    for link in topo.links:
+        adjacent.setdefault(link.a, []).append(link.b)
+        adjacent.setdefault(link.b, []).append(link.a)
+
     out: dict[str, tuple[int, int]] = {}
+    placed_x: dict[str, int] = {}
+
     for row, tier in enumerate(ordered):
         members = tiers[tier]
-        # Centre the row so the hierarchy reads as a pyramid, not left-aligned.
-        offset = (widest - len(members)) * COL_GAP // 2
-        for col, node in enumerate(members):
-            out[node.name] = (MARGIN_X + offset + col * COL_GAP,
-                              MARGIN_Y + row * ROW_GAP)
+
+        def barycentre(node: Node) -> float | None:
+            xs = [placed_x[n] for n in adjacent.get(node.name, ()) if n in placed_x]
+            return sum(xs) / len(xs) if xs else None
+
+        anchors = {n.name: barycentre(n) for n in members}
+        # Nodes with no placed neighbour sort last, alphabetically among
+        # themselves, so ordering stays deterministic.
+        seq = sorted(members,
+                     key=lambda n: (anchors[n.name] is None,
+                                    anchors[n.name] or 0.0, n.name))
+
+        known = [a for a in anchors.values() if a is not None]
+        if known:
+            centre = sum(known) / len(known)
+            start = int(centre - (len(seq) - 1) * COL_GAP / 2)
+        else:
+            start = MARGIN_X + (widest - len(seq)) * COL_GAP // 2
+        start = max(MARGIN_X, start)
+
+        for col, node in enumerate(seq):
+            x = start + col * COL_GAP
+            out[node.name] = (x, MARGIN_Y + row * ROW_GAP)
+            placed_x[node.name] = x
     return out
 
 
