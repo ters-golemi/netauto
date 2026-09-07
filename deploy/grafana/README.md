@@ -70,6 +70,63 @@ docker compose down          # keeps 90 days of metrics
 docker compose down -v       # deletes them
 ```
 
+## Starting it with the app
+
+Running it by hand is fine for a first look, but the Metrics tab is only ever
+right when this stack is up, so on a workstation install tie the two together.
+`netauto-grafana.service` wraps the compose project:
+
+```ini
+# ~/.config/systemd/user/netauto-grafana.service
+[Unit]
+Description=Netauto Grafana + Prometheus (docker compose)
+After=netauto-web.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/Work/netauto/deploy/grafana
+# A user unit cannot order itself After=docker.service -- that is a system
+# unit, invisible to the user manager -- so wait for the daemon explicitly.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do /usr/bin/docker info >/dev/null 2>&1 && exit 0; sleep 2; done; echo "docker daemon not reachable after 60s" >&2; exit 1'
+ExecStart=/usr/bin/docker compose up -d --wait
+ExecStop=/usr/bin/docker compose stop
+# The first start pulls ~500 MB of images.
+TimeoutStartSec=600
+```
+
+Then one line under `[Unit]` in `netauto-web.service` pulls it in:
+
+```ini
+Wants=netauto-grafana.service
+```
+
+After `systemctl --user daemon-reload`, starting netauto starts the dashboards
+with it.
+
+Four details are deliberate. The unit has **no `[Install]` section** — it is
+never enabled on its own, so there is one source of truth for when the stack
+runs: the app. **`Wants=`, not `Requires=`**, so a docker install that has gone
+wrong cannot stop netauto itself from serving. **`--wait`** blocks until both
+containers are actually running, so a stack that dies on startup fails the unit
+instead of reporting success. And `ExecStop` runs **`stop`, not `down`**, which
+keeps the containers and the 90 days of history.
+
+The `ExecStartPre` loop is not belt-and-braces. Ordering against
+`docker.service` is impossible from a user unit, and at login the user manager
+can comfortably beat dockerd, so without the wait the stack would fail to start
+on exactly the reboots you were not watching.
+
+`Wants=` pulls the stack *up* only — stopping netauto leaves the containers
+running. That is the useful direction: Prometheus keeps its history and records
+the exporter as down, so an outage shows as a gap you can see rather than
+disappearing along with the evidence. To make them stop together, add
+`PartOf=netauto-web.service` to the unit's `[Unit]` section.
+
+What none of this covers is a manual `docker compose down` — nothing brings the
+stack back until netauto restarts. Container crashes and daemon restarts are
+already handled by `restart: unless-stopped` in the compose file.
+
 ## Why host networking
 
 Both containers run with `network_mode: host`, which is unusual enough to
