@@ -233,19 +233,34 @@ for any estate a serial audit loop can get through.
 
 ## Alerts
 
-`rules.yml` carries four, deliberately slack: a device is not down because one
-cycle missed it, and a compliance finding is usually months old and should not
-page anyone at 03:00.
+`rules.yml` carries five, deliberately slack: a compliance finding is usually
+months old and should not page anyone at 03:00.
 
-| Alert | Fires when |
-|---|---|
-| `NetautoExporterDown` | no completed cycle for 15m |
-| `NetautoAuditStale` | last cycle older than 40m |
-| `NetautoDeviceUnreachable` | a device has failed audits for 45m |
-| `NetautoCriticalFindingAppeared` | critical count rose vs. an hour ago, held 30m |
+| Alert | Severity | Fires when |
+|---|---|---|
+| `NetautoCollectorError` | warning | netauto cannot read its inventory or config, held 15m |
+| `NetautoDeviceUnreachable` | warning | the most recent audit of a device could not reach it, held 45m |
+| `NetautoDeviceNeverAudited` | info | a device in the inventory has never been audited, held 1h |
+| `NetautoAuditStale` | info | a device's last audit is more than 30 days old, held 1h |
+| `NetautoCriticalFindingAppeared` | critical | a device's critical findings rose against a week ago, held 30m |
 
-The last one compares against `offset 1h` on purpose: it fires on a *new*
-critical finding, not on a standing backlog you already know about.
+**The `for:` durations do not mean what they would with a timed collector.**
+Audits are manual, so between them every series is a flat line. `for: 45m` on
+`NetautoDeviceUnreachable` says "the last audit could not reach this device,
+and nothing has happened since to change that" — not "the device has been down
+for 45 minutes". The device may well be fine; re-running the audit is what
+clears it.
+
+`NetautoCriticalFindingAppeared` compares against `offset 7d`, so it fires on a
+*new* critical finding rather than on a standing backlog you already know
+about. A week rather than an hour for the same reason as above: with manual
+audits an hour ago is usually the same audit, and the comparison would always
+be zero.
+
+Nothing here fires merely because there is nothing to report. That is the
+normal state of a fresh install before its first audit, and a monitoring stack
+that pages on it trains you to ignore it. `NetautoCollectorError` is the rule
+that separates "the exporter is broken" from "no one has run an audit yet".
 
 No notification channel is configured — the alerts show in Prometheus at
 <http://127.0.0.1:9090/alerts> and nowhere else until you add an Alertmanager
