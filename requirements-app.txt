@@ -27,6 +27,12 @@ itsdangerous>=2.2.0
 python-multipart>=0.0.32
 bcrypt>=5.0.0
 
+# Workflow documents. python-docx writes the .docx; Pillow renders the
+# topology diagram as a PNG, because python-docx embeds rasters and cannot
+# embed the SVG the draw.io export would otherwise have given us.
+python-docx>=1.1.2
+Pillow>=11.0.0
+
 # Support
 PyYAML>=6.0.3
 deepdiff>=9.1.0

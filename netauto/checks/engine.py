@@ -26,6 +26,11 @@ class Finding:
     device: str
     detail: str = ""
     evidence: tuple[str, ...] = ()
+    #: What the rule is derived from, quoted in reports. A recommendation an
+    #: operator cannot trace back to a vendor's own guidance is just an
+    #: opinion, and reads like one in front of a change board.
+    reference: str = ""
+    remediation: str = ""
 
     @property
     def failed(self) -> bool:
@@ -46,6 +51,8 @@ class Rule:
         default=lambda cfg, facts: (True, "", ())
     )
     remediation: str = ""
+    #: The vendor guide, hardening document or benchmark this rule encodes.
+    reference: str = ""
 
     def applies_to(self, family: str) -> bool:
         return not self.families or family in self.families
@@ -92,6 +99,8 @@ def run_ruleset(
                 device=device_name,
                 detail=detail,
                 evidence=evidence,
+                reference=rule.reference,
+                remediation=rule.remediation,
             )
         )
     return findings

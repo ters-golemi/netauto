@@ -6,6 +6,7 @@ renders as an empty rectangle, and the page has to say why.
 """
 
 import pytest
+from conftest import assert_no_write_routes
 from fastapi.testclient import TestClient
 
 from netauto.web import app as appmod
@@ -140,10 +141,7 @@ def test_health_treats_401_as_up():
 
 def test_grafana_tab_adds_no_write_route(store, monkeypatch):
     monkeypatch.setenv("NETAUTO_GRAFANA_URL", GRAFANA)
-    app = create_app(store)
-    posts = {r.path for r in app.routes
-             if getattr(r, "methods", None) and "POST" in r.methods}
-    assert posts == {"/login", "/logout"}
+    assert_no_write_routes(create_app(store))
 
 
 def test_the_start_command_is_runnable_from_anywhere(store, monkeypatch):

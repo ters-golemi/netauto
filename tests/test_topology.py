@@ -7,6 +7,7 @@ ends, and a graph that fails to collapse those draws every cable as two.
 import xml.etree.ElementTree as ET
 
 import pytest
+from conftest import assert_no_write_routes
 
 from netauto import drawio, topology
 from netauto.config import Settings
@@ -427,9 +428,7 @@ def test_json_export_matches_the_graph(client, monkeypatch):
 
 
 def test_topology_adds_no_write_route(client):
-    posts = {r.path for r in client.app.routes
-             if getattr(r, "methods", None) and "POST" in r.methods}
-    assert posts == {"/login", "/logout"}
+    assert_no_write_routes(client.app)
 
 
 def _populated():

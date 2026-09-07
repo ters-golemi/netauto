@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% set nav = 'workflows' %}
+{% block title %}Workflows — Netauto{% endblock %}
+{% block content %}
+<h1>Workflows</h1>
+<p class="note">Each workflow runs against one platform, because the show
+   commands that make it useful are per-platform. Every command is checked
+   against the read-only allowlist before a session is opened. Nothing here can
+   change a device.</p>
+
+{% if error %}<div class="alert block"><p>{{ error }}</p></div>{% endif %}
+
+{% if runs %}
+<section class="result">
+  <h2>Recent runs</h2>
+  <div class="tablewrap">
+  <table class="data grid">
+    <thead><tr><th>Started</th><th>Workflow</th><th>Platform</th><th>By</th>
+               <th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+      <tr>
+        <td>{{ r.created_label }}</td>
+        <td>{{ r.name }}</td>
+        <td><code>{{ r.platform }}</code></td>
+        <td>{{ r.user }}</td>
+        <td><span class="status {{ 'fail' if r.status == 'failed' else r.status }}">{{ r.status }}</span></td>
+        <td><a href="/workflows/runs/{{ r.id }}">View</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Runs are held in memory only. Restarting the service discards
+     them — they hold full device configurations, and those do not belong on
+     disk.</p>
+</section>
+{% endif %}
+
+{% for entry in by_platform %}
+<section class="result">
+  <h2><code>{{ entry.platform }}</code>
+    <span class="note">{{ entry.devices }} device{{ '' if entry.devices == 1 else 's' }} in inventory</span></h2>
+  {% for wf in entry.workflows %}
+  <div class="workflow">
+    <h3>{{ wf.name }}</h3>
+    <ol class="steps">
+      {% for step in wf.steps %}<li><strong>{{ step.title }}</strong> — {{ step.detail }}</li>{% endfor %}
+    </ol>
+    {% if not wf.has_cli %}
+      <p class="note">No CLI on this platform. {{ wf.no_cli_reason }}</p>
+    {% endif %}
+    {% if entry.devices %}
+      <form method="post" action="/workflows/{{ wf.id }}/start" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input name="tag" placeholder="optional tag filter" autocomplete="off">
+        <button type="submit" class="primary">Run workflow</button>
+      </form>
+    {% else %}
+      <p class="note">No {{ entry.platform }} devices in the inventory, so there
+         is nothing to run this against.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endfor %}
+{% endblock %}

@@ -28,6 +28,9 @@ from starlette.status import HTTP_303_SEE_OTHER
 from netauto import __version__, drawio, metrics, topology
 from netauto.audit import audit_device
 from netauto.drivers import supported_platforms
+from netauto.workflows import runner as workflows
+from netauto.workflows import spec as workflow_spec
+from netauto.workflows.document import build as build_document
 from netauto.drivers.base import platform_family
 from netauto.errors import NetautoError
 from netauto.session import connect, load_context
@@ -107,6 +110,10 @@ def create_app(users: UserStore | None = None) -> FastAPI:
 
     app = FastAPI(title="Netauto", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.collector = collector
+    # Runs live here and nowhere else. See workflows/runner.py for why they are
+    # not written to disk.
+    workflow_service = workflows.WorkflowService()
+    app.state.workflows = workflow_service
     app.add_middleware(
         SessionMiddleware,
         secret_key=secret_key,
@@ -429,6 +436,127 @@ def create_app(users: UserStore | None = None) -> FastAPI:
                     # kiosk drops Grafana's own chrome, which would otherwise
                     # put a second nav bar inside our page.
                     embed_url=f"{dashboard_url}?kiosk&from=now-7d&to=now&refresh=1m")
+
+    # -- workflows -------------------------------------------------------
+
+    @app.get("/workflows", response_class=HTMLResponse)
+    def workflows_page(request: Request):
+        if not current_user(request):
+            return login_redirect()
+        error, by_platform = None, []
+        try:
+            _settings, inventory = load_context()
+            counts: dict[str, int] = {}
+            for device in inventory:
+                counts[device.platform] = counts.get(device.platform, 0) + 1
+            for platform in supported_platforms():
+                by_platform.append({
+                    "platform": platform,
+                    "devices": counts.get(platform, 0),
+                    "workflows": sorted(workflow_spec.for_platform(platform),
+                                        key=lambda w: w.kind),
+                })
+        except NetautoError as exc:
+            error = str(exc)
+        return page(request, "workflows.html", error=error,
+                    by_platform=by_platform, runs=workflow_service.store.list()[:10])
+
+    @app.post("/workflows/{workflow_id}/start")
+    def workflow_start(request: Request, workflow_id: str,
+                       csrf_token: str = Form(""), tag: str = Form("")):
+        if not current_user(request):
+            return login_redirect()
+        if not csrf_ok(request, csrf_token):
+            return page(request, "denied.html", reason="Invalid form token.")
+        try:
+            spec_ = workflow_spec.get(workflow_id)
+        except KeyError:
+            return PlainTextResponse("No such workflow.", status_code=404)
+        try:
+            settings, inventory = load_context()
+        except NetautoError as exc:
+            return page(request, "denied.html", reason=str(exc))
+
+        targets = [d for d in inventory.select(platform=spec_.platform)
+                   if not tag or tag in d.tags]
+        if not targets:
+            return page(request, "denied.html", reason=(
+                f"No {spec_.platform} devices in the inventory"
+                + (f" tagged {tag!r}." if tag else ".")
+                + " A workflow with nothing to run against would report a "
+                  "clean result, which would be a lie."))
+        log(request, "workflow", spec_.id, f"{len(targets)} devices")
+        run = workflow_service.start(spec_, inventory, settings, targets,
+                                     current_user(request) or "anonymous")
+        return RedirectResponse(f"/workflows/runs/{run.id}",
+                                status_code=HTTP_303_SEE_OTHER)
+
+    # Declared before the {run_id} page route: FastAPI matches in order,
+    # and "{run_id}" happily swallows "abc.docx".
+    @app.get("/workflows/runs/{run_id}.docx")
+    def workflow_document(request: Request, run_id: str):
+        """The editable Word document, built on demand and never stored."""
+        if not current_user(request):
+            return login_redirect()
+        run = workflow_service.store.get(run_id)
+        if run is None:
+            return PlainTextResponse("No such run.", status_code=404)
+        if run.running:
+            return PlainTextResponse(
+                "This run has not finished. The document would describe a "
+                "partial collection.", status_code=409)
+        log(request, "workflow-document", run.workflow_id, run_id)
+        stem = f"{run.kind}-{run.platform}-{run.created_label[:10]}"
+        return Response(
+            build_document(run),
+            media_type=("application/vnd.openxmlformats-officedocument"
+                        ".wordprocessingml.document"),
+            headers={"Content-Disposition": f'attachment; filename="{stem}.docx"'},
+        )
+
+    @app.get("/workflows/runs/{run_id}", response_class=HTMLResponse)
+    def workflow_run_page(request: Request, run_id: str):
+        if not current_user(request):
+            return login_redirect()
+        run = workflow_service.store.get(run_id)
+        if run is None:
+            return page(request, "denied.html", reason=(
+                "No such run. Runs are held in memory only -- restarting "
+                "netauto-web discards them, because they hold full device "
+                "configurations and those do not belong on disk."))
+        return page(request, "workflow_run.html", run=run,
+                    spec=workflow_spec.get(run.workflow_id))
+
+    @app.get("/workflows/runs/{run_id}/status")
+    def workflow_run_status(request: Request, run_id: str):
+        """Polled by the progress page. Small on purpose."""
+        if not current_user(request):
+            return PlainTextResponse("", status_code=401)
+        run = workflow_service.store.get(run_id)
+        if run is None:
+            return PlainTextResponse("", status_code=404)
+        return {
+            "status": run.status,
+            "progress": run.progress,
+            "error": run.error,
+            "steps": [{"key": s.key, "status": s.status, "message": s.message}
+                      for s in run.steps],
+            "totals": run.totals(),
+        }
+
+    @app.post("/workflows/runs/{run_id}/cancel")
+    def workflow_run_cancel(request: Request, run_id: str,
+                            csrf_token: str = Form("")):
+        if not current_user(request):
+            return login_redirect()
+        if not csrf_ok(request, csrf_token):
+            return page(request, "denied.html", reason="Invalid form token.")
+        run = workflow_service.store.get(run_id)
+        if run is not None:
+            run.cancel()
+            log(request, "workflow-cancel", run.workflow_id, run_id)
+        return RedirectResponse(f"/workflows/runs/{run_id}",
+                                status_code=HTTP_303_SEE_OTHER)
 
     @app.get("/health")
     def health():

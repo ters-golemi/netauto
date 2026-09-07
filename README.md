@@ -95,8 +95,8 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 
 Pages: overview, device list, per-device facts and running config, a read-only
 command box, compliance audit by group, ARP discovery, LLDP topology with a
-draw.io export, an activity log, and a Metrics tab embedding the Grafana
-dashboard when one is configured.
+draw.io export, Workflows, an activity log, and a Metrics tab embedding the
+Grafana dashboard when one is configured.
 
 ### Accounts
 
@@ -139,6 +139,57 @@ middleware in `netauto/web/app.py`.
 
 **Still read-only.** A test asserts the only POST routes in the whole
 application are `/login` and `/logout`; every device route is a GET that reads.
+
+## Workflows
+
+Two multi-step pipelines, one pair per supported platform -- 24 in all, under
+the **Workflows** tab. They are per-platform because the useful part is the
+show-command set, and that does not generalise.
+
+**Device Configuration Check** connects, pulls the running configuration and
+the platform's read-only command set, compares both against the vendor-guide
+ruleset, and reports what to improve -- each finding with a severity, the
+evidence from the config, a recommendation, and the guide it comes from.
+
+**Network Documentation Maker** does all of that, then maps LLDP/CDP
+neighbours and writes an editable Word document: inventory, findings, and a
+topology diagram embedded as a picture.
+
+```
+Configuration check:   connect -> config + show output -> compare -> report
+Documentation maker:   ... the above ... -> neighbours -> assemble -> .docx
+```
+
+Runs happen in the background: start one, watch the steps, come back to it.
+A run over an estate takes minutes because each device is a real session, so
+holding an HTTP request open for it was never going to work.
+
+Three things worth knowing before relying on it:
+
+**The command sets are data, and the guard still decides.** Every command a
+workflow can send lives in `netauto/workflows/spec.py` as a plain tuple, and
+the test suite runs every one of them through `assert_read_only` for its
+platform. A workflow cannot widen what netauto may send to a device; only an
+edit to `READ_ALLOW` can, and that is a deliberate change to the guard itself.
+The guard rejects `|` as chaining, which is why nothing here pipes -- no
+`| display set`, no `| section`.
+
+**Three platforms have no CLI.** Meraki, Aruba Central and AOS-CX expose no
+command interface through their drivers, so those workflows pull state through
+the API and mark the show-command step "skipped" with the reason. An empty
+command set for them is a statement about the platform, not an omission.
+
+**Runs are held in memory and nowhere else.** They contain full running
+configurations -- password hashes, community strings, key material -- and
+netauto keeps that off disk. Documents are built on demand and streamed. The
+cost is real: restarting the service discards run history, and you re-run the
+workflow.
+
+Workflows evaluate a larger ruleset than the Audit page: `checks/vendor.py`,
+which is the built-in rules annotated with their sources plus the guidance that
+only makes sense once you have the show output too. The Audit page and the
+Prometheus metrics keep running `BUILTIN` unchanged, so this cannot move a
+dashboard or fire an alert.
 
 ## Topology diagrams
 
@@ -220,14 +271,24 @@ with an explanation rather than a generic failure.
 15 rules in `netauto/checks/builtin.py`, scoped by platform family so a Junos
 config is never judged by IOS syntax: telnet exposure, SSH version, cleartext
 management, password encryption, enable secrets, session timeouts, root-login
-policy, default SNMP communities, time sources, remote logging.
+policy, default SNMP communities, time sources, remote logging. This is what
+the Audit page and the Prometheus metrics evaluate.
+
+`netauto/checks/vendor.py` adds 15 more for the workflows -- AAA, legacy
+services, management ACLs, BPDU guard, log timestamps, banners, Junos web
+management and idle timeouts, Aruba loop protection, FortiOS trusted hosts and
+remote logging, and writable SNMP -- and gives all 30 a citation, so a
+recommendation can be traced to the guide it came from rather than read as an
+opinion.
 
 Rules take config text plus facts and return pass/fail with evidence. They
-connect to nothing, so they unit-test against captured configs.
+connect to nothing, so they unit-test against captured configs. Each vendor
+rule is fired in both directions in `tests/test_vendor_rules.py`: a rule that
+cannot fail and a rule that cannot pass both look healthy from the outside.
 
 ## Testing
 
-207 tests, no hardware required. The command guard has the heaviest coverage
+275 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 
@@ -245,3 +306,13 @@ captured neighbour tables, but no driver's `neighbors()` has met real gear. Cisc
 Fortinet paths need a first run against actual gear or a lab; expect to adjust
 response parsing, particularly `aoscx_driver.get_config` and the Central
 endpoint paths, which vary by firmware and region.
+
+The workflows inherit all of that, and add their own. Every command set is
+checked against the read-only guard and the pipelines are tested end to end
+against fake drivers, but **no workflow has run against real equipment**. The
+show commands are written from vendor documentation, so expect some to be
+refused by a given model or software train -- the runner treats that as a
+per-command gap rather than a failed device, which is exactly the case that
+needs a real run to shake out. The rules themselves are tested against
+representative config snippets, not captured production configs, so their
+false-positive rate is unmeasured.

@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from conftest import assert_no_write_routes
 from fastapi.testclient import TestClient
 
 from netauto.web import activity
@@ -150,6 +151,4 @@ def test_missing_inventory_is_reported_not_crashed(client, monkeypatch):
 
 def test_no_write_routes_exist(client):
     """The GUI must expose no mutating device route."""
-    posts = {r.path for r in client.app.routes
-             if getattr(r, "methods", None) and "POST" in r.methods}
-    assert posts == {"/login", "/logout"}, f"unexpected POST routes: {posts}"
+    assert_no_write_routes(client.app)

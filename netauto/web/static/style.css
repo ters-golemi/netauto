@@ -280,3 +280,21 @@ pre.cmd {
   border-radius:6px; overflow-x:auto; font-size:13px;
   background:rgba(127,127,127,0.08);
 }
+
+/* -- workflows ---------------------------------------------------------- */
+
+.workflow { border-top:1px solid var(--line); padding:14px 0 4px; }
+.workflow h3 { margin:0 0 6px; font-size:15px; }
+ol.steps { margin:5px 0 12px; padding-left:20px; }
+ol.steps li { margin:4px 0; line-height:1.45; }
+ol.steps .note { margin:2px 0 0; }
+ol.steps .status { margin-right:6px; }
+
+/* The download is an <a>, but .primary is scoped to button.primary, so it
+   needs the accent spelled out rather than inherited. */
+a.button.primary {
+  display:inline-block; text-decoration:none; font-weight:600;
+  background:var(--accent); color:var(--accent-ink);
+  border-radius:6px; padding:10px 18px;
+}
+a.button.primary:hover { filter:brightness(1.08); }

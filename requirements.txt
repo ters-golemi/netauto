@@ -44,6 +44,7 @@ orderly-set==5.5.0
 oyaml==1.0
 packaging==26.3
 paramiko==4.0.0
+pillow==12.3.0
 pluggy==1.6.0
 pyaoscx==2.6.0
 pycentral==1.4.3
@@ -57,6 +58,7 @@ PyNaCl==1.6.2
 pyparsing==3.3.2
 pyserial==3.5
 pytest==9.1.1
+python-docx==1.2.0
 python-multipart==0.0.32
 PyYAML==6.0.3
 referencing==0.37.0

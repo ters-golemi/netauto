@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% set nav = 'workflows' %}
+{% block title %}{{ run.name }} — Netauto{% endblock %}
+{% block content %}
+<h1>{{ run.name }} <code>{{ run.platform }}</code></h1>
+<p class="note">Run {{ run.id }}, started {{ run.created_label }} by {{ run.user }},
+   over {{ run.targets | length }} device{{ '' if run.targets | length == 1 else 's' }}.</p>
+
+<div class="alert block" id="runbanner" {% if not run.running %}hidden{% endif %}>
+  <p><strong>Running.</strong> Each device is contacted in turn; this page
+     refreshes itself. Closing it does not stop the run.</p>
+  <form method="post" action="/workflows/runs/{{ run.id }}/cancel" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Stop after the current device</button>
+  </form>
+</div>
+
+{% if run.error %}<div class="alert block"><strong>Run failed.</strong><p>{{ run.error }}</p></div>{% endif %}
+
+<section class="result">
+  <h2>Steps</h2>
+  <ol class="steps" id="steps">
+    {% for step in run.steps %}
+    <li data-key="{{ step.key }}">
+      <span class="status {{ 'fail' if step.status == 'failed' else step.status }}" data-status>{{ step.status }}</span>
+      <strong>{{ step.title }}</strong>
+      <div class="note" data-message>{{ step.message or step.detail }}</div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+
+{% if not run.running %}
+<div class="tiles small">
+  <div class="tile"><span class="num">{{ run.totals().devices }}</span><span class="lbl">Devices</span></div>
+  <div class="tile bad"><span class="num">{{ run.totals().fail }}</span><span class="lbl">To improve</span></div>
+  <div class="tile good"><span class="num">{{ run.totals()['pass'] }}</span><span class="lbl">Passed</span></div>
+  <div class="tile warn"><span class="num">{{ run.totals().unreachable }}</span><span class="lbl">Unreachable</span></div>
+</div>
+
+<p><a class="primary button" href="/workflows/runs/{{ run.id }}.docx">Download the editable Word document</a></p>
+
+{% for r in run.results %}
+<section class="result">
+  <h2>{{ r.device }} <code>{{ r.platform }}</code></h2>
+  {% if r.error %}
+    <div class="alert block"><strong>Not reached.</strong><p>{{ r.error }}</p>
+      <p class="note">An unreachable device is not a passing device.</p></div>
+  {% else %}
+    <p class="note">{{ r.config_lines }} configuration lines,
+       {{ r.outputs | length }} command output{{ '' if r.outputs | length == 1 else 's' }}
+       {%- if r.command_errors %}, {{ r.command_errors | length }} command(s) refused by the device{% endif %}.</p>
+    <div class="tablewrap">
+    <table class="data grid">
+      <thead><tr><th>Rule</th><th>Severity</th><th>Status</th><th>Recommendation</th></tr></thead>
+      <tbody>
+      {% for f in r.findings %}
+        <tr class="{{ 'row-fail' if f.status == 'fail' }}">
+          <td><code>{{ f.rule_id }}</code> {{ f.title }}</td>
+          <td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td>
+          <td><span class="status {{ f.status }}">{{ f.status }}</span></td>
+          <td>
+            {{ f.detail }}
+            {% if f.evidence %}<div class="evidence">{% for e in f.evidence %}<code>{{ e }}</code>{% endfor %}</div>{% endif %}
+            {% if f.status == 'fail' and f.remediation %}<div><strong>Do:</strong> {{ f.remediation }}</div>{% endif %}
+            {% if f.reference %}<div class="note">Source: {{ f.reference }}</div>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+
+<script>
+(function () {
+  var banner = document.getElementById('runbanner');
+  if (banner.hidden) return;          // finished before the page rendered
+  var url = '/workflows/runs/{{ run.id }}/status';
+  var poll = setInterval(function () {
+    fetch(url, {credentials: 'same-origin'}).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (data) {
+      if (!data) return;
+      data.steps.forEach(function (s) {
+        var li = document.querySelector('[data-key="' + s.key + '"]');
+        if (!li) return;
+        var badge = li.querySelector('[data-status]');
+        badge.textContent = s.status;
+        badge.className = 'status ' + (s.status === 'failed' ? 'fail' : s.status);
+        if (s.message) li.querySelector('[data-message]').textContent = s.message;
+      });
+      if (data.status !== 'running' && data.status !== 'pending') {
+        clearInterval(poll);
+        // Reload once for the results, which the poll deliberately omits.
+        window.location.reload();
+      }
+    }).catch(function () { /* a dropped poll is not worth an alert */ });
+  }, 2000);
+})();
+</script>
+{% endblock %}
