@@ -152,3 +152,61 @@ def test_missing_inventory_is_reported_not_crashed(client, monkeypatch):
 def test_no_write_routes_exist(client):
     """The GUI must expose no mutating device route."""
     assert_no_write_routes(client.app)
+
+
+# --- discovery and port scanning --------------------------------------------
+
+@pytest.fixture
+def swept(monkeypatch):
+    """Stand in for arp-scan, which needs a real segment and raw sockets."""
+    from netauto import scan
+
+    monkeypatch.setattr(scan, "arp_sweep", lambda cidr, iface="": [
+        scan.Host(ip="192.168.1.1", mac="00:11:22:aa:bb:cc", vendor="Cisco"),
+        scan.Host(ip="192.168.1.9", mac="00:11:22:aa:bb:dd", vendor="Aruba"),
+    ])
+    calls: list[tuple] = []
+
+    def fake_probe(hosts, ports, **kw):
+        calls.append((list(hosts), tuple(ports)))
+        return [scan.Host(ip=h.ip, mac=h.mac, vendor=h.vendor,
+                          ports=(scan.Port(22, True, "SSH-2.0-Cisco-1.25"),
+                                 scan.Port(23, h.ip.endswith(".9"))))
+                for h in hosts]
+
+    monkeypatch.setattr(scan, "probe_hosts", fake_probe)
+    return calls
+
+
+def test_sweep_without_probing_dials_nothing(client, swept):
+    _login(client)
+    body = client.get("/discover?cidr=192.168.1.0/30").text
+    assert "192.168.1.1" in body
+    assert swept == [], "no port was asked for, so none may be dialled"
+
+
+def test_probe_reports_open_ports(client, swept):
+    _login(client)
+    body = client.get("/discover?cidr=192.168.1.0/30&probe=1&ports=22,23").text
+    assert swept and swept[0][1] == (22, 23)
+    assert "open" in body and "closed" in body
+
+
+def test_probe_defaults_to_ssh_and_telnet(client, swept):
+    _login(client)
+    client.get("/discover?cidr=192.168.1.0/30&probe=1")
+    assert swept[0][1] == (22, 23)
+
+
+def test_bad_port_input_is_an_error_not_a_scan(client, swept):
+    _login(client)
+    body = client.get("/discover?cidr=192.168.1.0/30&probe=1&ports=ssh").text
+    assert "Not a port number" in body
+    assert swept == []
+
+
+def test_scanned_ports_are_recorded_against_the_account(client, env, swept):
+    _login(client, "bob")
+    client.get("/discover?cidr=192.168.1.0/30&probe=1&ports=22,23")
+    entry = next(e for e in activity.tail(path=env["log"]) if e["action"] == "discover")
+    assert entry["user"] == "bob" and "ports=22,23" in entry["detail"]

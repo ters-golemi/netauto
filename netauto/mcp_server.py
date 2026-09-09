@@ -9,14 +9,14 @@ which is the whole safety model. Run with:
 
 from __future__ import annotations
 
+import contextlib
 import json
-import shutil
-import subprocess
+import re
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from netauto import diffing, drawio, topology
+from netauto import diffing, drawio, scan, topology
 from netauto.audit import audit_device
 from netauto.checks import BUILTIN
 from netauto.drivers import supported_platforms
@@ -36,6 +36,10 @@ against a read-only allowlist and rejected if they are not clearly read-only.
 
 Credentials are read from the environment at connect time and are never stored
 in the inventory or returned by any tool.
+
+net_discover_local and net_scan_ports look at a network rather than a device.
+The port check is a plain TCP connect that sends nothing; it reports what
+answers, not what can be logged into.
 """
 
 server = MCPServer(name="netauto", instructions=INSTRUCTIONS)
@@ -206,35 +210,63 @@ def net_config_diff(device: str, candidate_config: str, kind: str = "running") -
 
 
 @server.tool()
-def net_discover_local(cidr: str, interface: str = "") -> str:
+def net_discover_local(cidr: str, interface: str = "", probe_ports: str = "") -> str:
     """Discover live hosts on a directly attached network by ARP.
 
     ARP is authoritative on a local segment: hosts answer it even when they drop
     ICMP. Requires arp-scan on the host running this server.
 
+    Hosts already in the inventory come back with "known_as" set, so what is
+    left is what nobody has documented.
+
     Args:
         cidr: network to sweep, for example 192.168.1.0/24.
         interface: interface to scan from, when the host is multi-homed.
+        probe_ports: when set, also check which management ports each host
+            answers on -- "22,23" for SSH and telnet, or "default" for the
+            same two. Left empty, no port is dialled.
     """
-    binary = shutil.which("arp-scan")
-    if not binary:
-        return _json({"error": "arp-scan is not installed on this host."})
-    cmd = [binary, cidr, "--plain"]
-    if interface:
-        cmd += ["-I", interface]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False)
-    except subprocess.TimeoutExpired:
-        return _json({"error": f"arp-scan timed out sweeping {cidr}"})
-    if proc.returncode != 0:
-        return _json({"error": proc.stderr.strip() or f"arp-scan exited {proc.returncode}"})
-    hosts = []
-    for line in proc.stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) >= 2:
-            hosts.append({"ip": parts[0], "mac": parts[1].lower(),
-                          "vendor": parts[2] if len(parts) > 2 else ""})
-    return _json({"cidr": cidr, "count": len(hosts), "hosts": hosts})
+        ports = scan.parse_ports("" if probe_ports.strip().lower() == "default"
+                                 else probe_ports) if probe_ports.strip() else ()
+        hosts = scan.arp_sweep(cidr, interface)
+        if ports and hosts:
+            hosts = scan.probe_hosts(hosts, ports)
+        with contextlib.suppress(NetautoError):
+            hosts = scan.annotate_known(hosts, load_context()[1])
+    except NetautoError as exc:
+        return _error(exc)
+    return _json({"cidr": cidr, "count": len(hosts),
+                  "probed_ports": list(ports),
+                  "hosts": [h.as_dict() for h in hosts]})
+
+
+@server.tool()
+def net_scan_ports(hosts: str, ports: str = "") -> str:
+    """Check which management ports given hosts answer on.
+
+    A plain TCP connect per host and port, plus whatever banner the service
+    volunteers -- SSH names its software before the client speaks, which is
+    often enough to tell what the far end is. Nothing is sent, so nothing is
+    changed. Unlike net_discover_local this needs no ARP, so it reaches any
+    address that routes.
+
+    Args:
+        hosts: addresses or names to probe, comma or space separated.
+        ports: ports to try, default SSH and telnet ("22,23").
+    """
+    targets = [h for h in re.split(r"[,\s]+", hosts.strip()) if h]
+    if not targets:
+        return _json({"error": "No hosts given."})
+    try:
+        wanted = scan.parse_ports(ports)
+        results = scan.probe_hosts(targets, wanted)
+        with contextlib.suppress(NetautoError):
+            results = scan.annotate_known(results, load_context()[1])
+    except NetautoError as exc:
+        return _error(exc)
+    return _json({"ports": list(wanted), "count": len(results),
+                  "hosts": [h.as_dict() for h in results]})
 
 
 @server.tool()

@@ -107,7 +107,7 @@ sudo -u netauto .venv/bin/pip install -r requirements-dev.txt
 sudo -u netauto .venv/bin/python -m pytest tests/ -q
 ```
 
-You should see **207 passed**. These tests need no network devices, so this
+You should see **315 passed**. These tests need no network devices, so this
 validates the install before any device credentials exist.
 
 ## 5. Let discovery work without root
@@ -120,7 +120,9 @@ sudo setcap cap_net_raw+ep "$(command -v arp-scan)"
 getcap "$(command -v arp-scan)"
 ```
 
-Skip this if you do not need the Discover page.
+Skip this if you do not need the Discover page. Only the ARP sweep needs the
+capability: the SSH/telnet port check is an ordinary TCP connect, so it works
+as an unprivileged user with or without this step.
 
 ## 6. Configuration and inventory
 

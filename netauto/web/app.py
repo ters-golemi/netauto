@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
-from netauto import __version__, drawio, metrics, topology
+from netauto import __version__, drawio, metrics, scan, topology
 from netauto.audit import audit_device
 from netauto.drivers import supported_platforms
 from netauto.workflows import runner as workflows
@@ -310,37 +310,34 @@ def create_app(users: UserStore | None = None) -> FastAPI:
                     tag=tag, device=device, tags=tags, totals=totals)
 
     @app.get("/discover", response_class=HTMLResponse)
-    def discover_page(request: Request, cidr: str = "", interface: str = ""):
+    def discover_page(request: Request, cidr: str = "", interface: str = "",
+                      probe: str = "", ports: str = ""):
         if not current_user(request):
             return login_redirect()
-        hosts, error = [], None
+        hosts: list[scan.Host] = []
+        error = None
+        wanted: tuple[int, ...] = ()
         if cidr:
-            import shutil
-            import subprocess
-
-            binary = shutil.which("arp-scan")
-            if not binary:
-                error = "arp-scan is not installed on this server."
-            else:
-                cmd = [binary, cidr, "--plain"]
-                if interface:
-                    cmd += ["-I", interface]
-                log(request, "discover", cidr, interface)
-                try:
-                    proc = subprocess.run(cmd, capture_output=True, text=True,
-                                          timeout=180, check=False)
-                    if proc.returncode != 0:
-                        error = proc.stderr.strip() or f"arp-scan exited {proc.returncode}"
-                    else:
-                        for line in proc.stdout.splitlines():
-                            parts = line.split("\t")
-                            if len(parts) >= 2:
-                                hosts.append({"ip": parts[0], "mac": parts[1].lower(),
-                                              "vendor": parts[2] if len(parts) > 2 else ""})
-                except subprocess.TimeoutExpired:
-                    error = f"arp-scan timed out sweeping {cidr}"
+            try:
+                wanted = scan.parse_ports(ports) if probe else ()
+                # Logged before the sweep runs: an attempted scan is worth
+                # attributing whether or not it finds anything.
+                detail = interface
+                if wanted:
+                    detail = f"{interface} ports={','.join(str(p) for p in wanted)}".strip()
+                log(request, "discover", cidr, detail)
+                hosts = scan.arp_sweep(cidr, interface)
+                if wanted and hosts:
+                    hosts = scan.probe_hosts(hosts, wanted)
+                # Knowing which answers are already managed is most of the
+                # value: what is left is what nobody put in the inventory.
+                with contextlib.suppress(NetautoError):
+                    hosts = scan.annotate_known(hosts, load_context()[1])
+            except NetautoError as exc:
+                error = str(exc)
         return page(request, "discover.html", hosts=hosts, error=error,
-                    cidr=cidr, interface=interface)
+                    cidr=cidr, interface=interface, probe=bool(probe),
+                    ports=ports, wanted=wanted, port_names=scan.PORT_NAMES)
 
     @app.get("/activity", response_class=HTMLResponse)
     def activity_page(request: Request):

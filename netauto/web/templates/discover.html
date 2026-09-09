@@ -6,26 +6,62 @@
 <form class="inline" method="get">
   <input name="cidr" value="{{ cidr }}" placeholder="192.168.1.0/24" required autocomplete="off">
   <input name="interface" value="{{ interface }}" placeholder="interface (optional)" autocomplete="off">
+  <label><input type="checkbox" name="probe" value="1" {{ 'checked' if probe }}> check ports</label>
+  <input name="ports" value="{{ ports }}" placeholder="22,23" autocomplete="off" size="10">
   <button type="submit" class="primary">Sweep</button>
 </form>
 <p class="note">ARP sweep of a directly attached segment. Hosts answer ARP even when
    they drop ICMP, so this finds more than a ping sweep — but only on networks this
-   server is physically attached to.</p>
+   server is physically attached to. With <em>check ports</em> ticked, each host that
+   answers is then dialled on the listed ports (SSH and telnet by default) to see
+   which management paths are open. That is a plain TCP connect: it sends nothing
+   and changes nothing.</p>
 
 {% if error %}<div class="alert block"><p>{{ error }}</p></div>{% endif %}
 
 {% if hosts %}
-<p class="filterbar">{{ hosts|length }} hosts on <code>{{ cidr }}</code></p>
+<p class="filterbar">{{ hosts|length }} hosts on <code>{{ cidr }}</code>{% if wanted %},
+  probed on {{ wanted|join(', ') }}{% endif %}</p>
 <div class="tablewrap">
 <table class="data grid">
-  <thead><tr><th>Address</th><th>Hardware</th><th>Vendor</th></tr></thead>
+  <thead><tr>
+    <th>Address</th><th>Hardware</th><th>Vendor</th>
+    {% if wanted %}
+      {% for p in wanted %}<th class="nowrap">{{ p }}<span class="muted"> {{ port_names.get(p, '') }}</span></th>{% endfor %}
+      <th>Banner</th>
+    {% endif %}
+    <th>Inventory</th>
+  </tr></thead>
   <tbody>
   {% for h in hosts %}
-    <tr><td class="strong">{{ h.ip }}</td><td><code>{{ h.mac }}</code></td><td>{{ h.vendor or '—' }}</td></tr>
+    <tr>
+      <td class="strong">{{ h.ip }}</td>
+      <td><code>{{ h.mac or '—' }}</code></td>
+      <td>{{ h.vendor or '—' }}</td>
+      {% if wanted %}
+        {% for number in wanted %}
+          {% set port = h.port(number) %}
+          <td>{% if port and port.is_open %}
+                <span class="status {{ 'fail' if port.is_cleartext else 'pass' }}">open</span>
+              {% else %}<span class="status skip">closed</span>{% endif %}</td>
+        {% endfor %}
+        <td><div class="evidence">
+          {%- for port in h.open_ports if port.banner %}<code>{{ port.banner }}</code>
+          {%- else %}—{% endfor %}
+        </div></td>
+      {% endif %}
+      <td>{% if h.known_as %}<a href="/devices/{{ h.known_as }}">{{ h.known_as }}</a>
+          {% else %}<span class="muted">not managed</span>{% endif %}</td>
+    </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+{% if wanted %}
+<p class="note">An open telnet port is worth chasing: it carries credentials in
+   clear text. Anything answering here that is <em>not managed</em> is a host on
+   your network that netauto does not know about.</p>
+{% endif %}
 {% elif cidr and not error %}
 <p class="muted">No hosts answered on {{ cidr }}.</p>
 {% endif %}

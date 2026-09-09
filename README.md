@@ -57,7 +57,8 @@ Three independent layers, because one is not enough:
 | `net_run_show` | One allowlisted read-only command |
 | `net_audit` | Hardening ruleset against a device or tag group |
 | `net_config_diff` | Candidate vs running — review only, no commit |
-| `net_discover_local` | ARP sweep of a directly attached segment |
+| `net_discover_local` | ARP sweep of a directly attached segment, optionally probing management ports |
+| `net_scan_ports` | Which of SSH, telnet and friends given hosts answer on |
 | `net_topology` | LLDP/CDP graph, as JSON or an editable draw.io file |
 
 ## Agents
@@ -94,7 +95,8 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 ```
 
 Pages: overview, device list, per-device facts and running config, a read-only
-command box, compliance audit by group, ARP discovery, LLDP topology with a
+command box, compliance audit by group, ARP discovery with an optional
+SSH/telnet port check, LLDP topology with a
 draw.io export, Workflows, an activity log, and a Metrics tab embedding the
 Grafana dashboard when one is configured.
 
@@ -190,6 +192,38 @@ which is the built-in rules annotated with their sources plus the guidance that
 only makes sense once you have the show output too. The Audit page and the
 Prometheus metrics keep running `BUILTIN` unchanged, so this cannot move a
 dashboard or fire an alert.
+
+## Discovery and port scanning
+
+Two stages, because they answer different questions. `arp-scan` finds live
+hosts on a directly attached segment -- authoritative there, since hosts answer
+ARP even when they drop ICMP, and useless off it. Tick *check ports* and each
+host that answered is then dialled on the listed ports, SSH and telnet by
+default:
+
+```
+# in the GUI: Discover -> 192.168.1.0/24, check ports, 22,23
+# as an agent tool:
+net_discover_local(cidr="192.168.1.0/24", probe_ports="22,23")
+net_scan_ports(hosts="192.168.1.1, 192.168.1.9")   # no ARP, so any routed address
+```
+
+The probe is an ordinary TCP `connect()` and, at most, a read of whatever the
+service volunteers first. It sends nothing, needs no privileges, and learns
+nothing a client dialling the port would not. SSH names its software before
+the client speaks, so an open 22 usually comes back with the far end's banner
+-- often enough to tell a Cisco from an OpenSSH host. Telnet opens with binary
+option negotiation, which is reported as no banner rather than as mojibake.
+
+An open telnet port is flagged separately from an open SSH port: it carries
+credentials in clear text, so it is a finding rather than an inventory fact.
+Addresses already in the inventory are named in a column of their own, which
+makes the interesting rows the ones that are *not* -- hosts on the wire that
+nobody documented.
+
+Bounded on purpose: at most a /22 per sweep, 16 ports, and 4096 probes in
+total. An unbounded range times an unbounded port list is how a scan turns
+into an hour-long page load.
 
 ## Topology diagrams
 
@@ -288,7 +322,7 @@ cannot fail and a rule that cannot pass both look healthy from the outside.
 
 ## Testing
 
-275 tests, no hardware required. The command guard has the heaviest coverage
+315 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 
@@ -300,7 +334,9 @@ default-deny behaviour.
 
 The vendor drivers are written against each SDK's documented API and are
 exercised by import and signature checks, but **only the local ARP discovery
-path has been run against real equipment**. That includes the LLDP topology
+path has been run against real equipment**. The port probe is tested against
+real sockets on the loopback -- a listener that answers, one that stays silent,
+a closed port -- but has not been pointed at production gear. That includes the LLDP topology
 path: the graph assembly and draw.io output are covered by tests against
 captured neighbour tables, but no driver's `neighbors()` has met real gear. Cisco, Juniper, Aruba, Meraki and
 Fortinet paths need a first run against actual gear or a lab; expect to adjust
