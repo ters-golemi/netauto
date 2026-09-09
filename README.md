@@ -64,6 +64,7 @@ Four independent layers, because one is not enough:
 | `net_config_diff` | Candidate vs running — review only, no commit |
 | `net_discover_local` | ARP sweep of a directly attached segment, optionally probing management ports |
 | `net_scan_ports` | Which of SSH, telnet and friends given hosts answer on |
+| `net_connect_adhoc` | Read from a discovered host, without adding it to the inventory |
 | `net_topology` | LLDP/CDP graph, as JSON or an editable draw.io file |
 
 ## Agents
@@ -255,6 +256,20 @@ the footer's promise holds on this page too. It is also not a way to manage a
 device -- audits, metrics and workflows all read the inventory, so a host worth
 keeping belongs in `inventory/devices.yaml`.
 
+Agents get the same thing through `net_connect_adhoc`, gated identically and
+per process -- an agent that has not swept has nothing it may connect to:
+
+```python
+net_discover_local(cidr="192.168.1.0/24", probe_ports="22")
+net_connect_adhoc(ip="192.168.1.9", platform="aruba_aoscx", credentials="LAB")
+net_connect_adhoc(ip="192.168.1.9", platform="aruba_aoscx", credentials="LAB",
+                  command="show vlan", include_config=True)
+```
+
+Facts always come back, because they are how you confirm you reached what you
+thought you did. A refused command or an unsupported config is reported beside
+them rather than sinking the call.
+
 The target gate is the part to understand before exposing this. See the safety
 model above: a swept, unroutable address, or nothing.
 
@@ -355,7 +370,7 @@ cannot fail and a rule that cannot pass both look healthy from the outside.
 
 ## Testing
 
-373 tests, no hardware required. The command guard has the heaviest coverage
+384 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 

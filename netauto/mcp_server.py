@@ -16,9 +16,10 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from netauto import diffing, drawio, scan, topology
+from netauto import adhoc, diffing, drawio, scan, topology
 from netauto.audit import audit_device
 from netauto.checks import BUILTIN
+from netauto.config import Settings
 from netauto.drivers import supported_platforms
 from netauto.drivers.base import assert_read_only, platform_family
 from netauto.errors import NetautoError
@@ -40,6 +41,11 @@ in the inventory or returned by any tool.
 net_discover_local and net_scan_ports look at a network rather than a device.
 The port check is a plain TCP connect that sends nothing; it reports what
 answers, not what can be logged into.
+
+net_connect_adhoc reads from a discovered host that has no inventory entry. It
+may only target an address net_discover_local found in this process within the
+last hour, and never one routable on the internet, because connecting offers
+this server's credentials to whatever answers.
 """
 
 server = MCPServer(name="netauto", instructions=INSTRUCTIONS)
@@ -51,6 +57,13 @@ def _json(payload: Any) -> str:
 
 def _error(exc: Exception) -> str:
     return _json({"error": type(exc).__name__, "message": str(exc)})
+
+
+#: Addresses this process has found on the wire. net_connect_adhoc may target
+#: nothing else, so this is a safety boundary rather than a cache -- see
+#: netauto/adhoc.py for what it is defending against. Per process: an agent
+#: that has not swept has nothing it may connect to.
+_discovered = adhoc.Discovered()
 
 
 @server.tool()
@@ -234,6 +247,8 @@ def net_discover_local(cidr: str, interface: str = "", probe_ports: str = "") ->
             hosts = scan.probe_hosts(hosts, ports)
         with contextlib.suppress(NetautoError):
             hosts = scan.annotate_known(hosts, load_context()[1])
+        # Only these addresses become connectable, and only for an hour.
+        _discovered.record(hosts)
     except NetautoError as exc:
         return _error(exc)
     return _json({"cidr": cidr, "count": len(hosts),
@@ -267,6 +282,66 @@ def net_scan_ports(hosts: str, ports: str = "") -> str:
         return _error(exc)
     return _json({"ports": list(wanted), "count": len(results),
                   "hosts": [h.as_dict() for h in results]})
+
+
+@server.tool()
+def net_connect_adhoc(ip: str, platform: str, credentials: str,
+                      command: str = "", include_config: bool = False) -> str:
+    """Read from a discovered host that is not in the inventory.
+
+    The counterpart to net_discover_local: that says an address is there, this
+    says what it is. The device is built for this call and stored nowhere, and
+    it reads through the same drivers and the same read-only guard as an
+    inventory device.
+
+    The address must be one net_discover_local found in this server process
+    within the last hour, and must not be routable on the internet. That is
+    deliberate: connecting makes the server offer its stored credentials to
+    whatever answers, so the target has to be a host this server saw rather
+    than one a prompt supplied. A device outside those limits belongs in the
+    inventory, which is a human edit on the server.
+
+    Facts always come back, because they are how you confirm you reached what
+    you thought you did. Configuration and command errors are reported per part
+    rather than sinking the call: an unsupported config or a refused command
+    still leaves the identification useful.
+
+    Args:
+        ip: address from a previous net_discover_local sweep.
+        platform: driver to use. net_supported_platforms lists them; Meraki
+            and Aruba Central are cloud tenants and cannot be dialled here.
+        credentials: environment prefix holding the secrets, e.g. LAB for
+            LAB_USERNAME and LAB_PASSWORD. Never the secret itself.
+        command: one read-only command, checked by the same guard as
+            net_run_show.
+        include_config: also retrieve the running configuration.
+    """
+    try:
+        dev = adhoc.build_device(ip, platform, credentials, _discovered)
+    except NetautoError as exc:
+        return _error(exc)
+    out: dict[str, Any] = {
+        "device": dev.name, "platform": dev.platform,
+        "credentials": dev.credentials_prefix, "in_inventory": False,
+        "note": "Ad-hoc session. Nothing about this host was stored.",
+    }
+    try:
+        with connect(dev, Settings.load()) as driver:
+            out["facts"] = driver.facts()
+            if include_config:
+                try:
+                    out["config"] = driver.get_config("running")
+                except NetautoError as exc:
+                    out["config_error"] = str(exc)
+            if command:
+                out["command"] = command
+                try:
+                    out["output"] = driver.run_read(command)
+                except NetautoError as exc:
+                    out["command_error"] = str(exc)
+    except NetautoError as exc:
+        return _error(exc)
+    return _json(out)
 
 
 @server.tool()
