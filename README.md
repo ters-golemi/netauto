@@ -31,7 +31,7 @@ Claude Code sessions rooted at `~/Work`. To run it by hand:
 
 ## The safety model
 
-Three independent layers, because one is not enough:
+Four independent layers, because one is not enough:
 
 1. **No commit path exists.** `Driver.apply_config` raises `WriteDisabled` and
    no driver overrides it. `allow_writes` in `config.yaml` gates future write
@@ -45,6 +45,11 @@ Three independent layers, because one is not enough:
    secrets resolve from the process environment at connect time. A device with
    prefix `CORE_SW` needs `CORE_SW_USERNAME` and `CORE_SW_PASSWORD`. No tool
    returns a credential.
+4. **Ad-hoc targets are gated.** Connecting to a host that is not in the
+   inventory makes the server offer its stored credentials to whatever answers,
+   so the address must be one this process found in a sweep within the last
+   hour, and must not be routable on the internet. Anything else is an
+   inventory entry, which takes access to the server's filesystem.
 
 ## MCP tools
 
@@ -96,7 +101,8 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 
 Pages: overview, device list, per-device facts and running config, a read-only
 command box, compliance audit by group, ARP discovery with an optional
-SSH/telnet port check, LLDP topology with a
+SSH/telnet port check, ad-hoc sessions against discovered hosts, LLDP
+topology with a
 draw.io export, Workflows, an activity log, and a Metrics tab embedding the
 Grafana dashboard when one is configured.
 
@@ -193,7 +199,7 @@ only makes sense once you have the show output too. The Audit page and the
 Prometheus metrics keep running `BUILTIN` unchanged, so this cannot move a
 dashboard or fire an alert.
 
-## Discovery and port scanning
+## Discovery, port scanning and ad-hoc sessions
 
 Two stages, because they answer different questions. `arp-scan` finds live
 hosts on a directly attached segment -- authoritative there, since hosts answer
@@ -224,6 +230,33 @@ nobody documented.
 Bounded on purpose: at most a /22 per sweep, 16 ports, and 4096 probes in
 total. An unbounded range times an unbounded port list is how a scan turns
 into an hour-long page load.
+
+### Connecting to what the sweep found
+
+A discovered host that answers on 22 gets a *connect* link, which opens the
+ordinary device page against it -- facts, running configuration, and the same
+guarded command box a managed device gets. The Device is built for that one
+request and stored nowhere; the platform is pre-selected from the SSH banner
+and MAC vendor, and the credentials come from an environment prefix the server
+already carries, chosen by name. No secret is typed into the browser.
+
+```
+Discover -> 192.168.1.9 [connect] -> platform: aruba_aoscx   (guessed)
+                                     credentials: LAB        (from the environment)
+```
+
+The prefixes offered are read out of the environment, so the list is exactly
+what this server can authenticate with -- export `LAB_USERNAME` and
+`LAB_PASSWORD` before starting it and `LAB` appears. Only names are read.
+
+What this deliberately is not: a shell. The guard polices one command at a
+time, and an interactive session is a stream, so there is no terminal here and
+the footer's promise holds on this page too. It is also not a way to manage a
+device -- audits, metrics and workflows all read the inventory, so a host worth
+keeping belongs in `inventory/devices.yaml`.
+
+The target gate is the part to understand before exposing this. See the safety
+model above: a swept, unroutable address, or nothing.
 
 ## Topology diagrams
 
@@ -322,7 +355,7 @@ cannot fail and a rule that cannot pass both look healthy from the outside.
 
 ## Testing
 
-315 tests, no hardware required. The command guard has the heaviest coverage
+373 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 
@@ -336,7 +369,10 @@ The vendor drivers are written against each SDK's documented API and are
 exercised by import and signature checks, but **only the local ARP discovery
 path has been run against real equipment**. The port probe is tested against
 real sockets on the loopback -- a listener that answers, one that stays silent,
-a closed port -- but has not been pointed at production gear. That includes the LLDP topology
+a closed port -- but has not been pointed at production gear. An ad-hoc session
+has never opened against a real device either: the target gate and the
+transient Device are covered, and everything past them is the same driver code
+as an inventory device, which is the code that has not met real gear. That includes the LLDP topology
 path: the graph assembly and draw.io output are covered by tests against
 captured neighbour tables, but no driver's `neighbors()` has met real gear. Cisco, Juniper, Aruba, Meraki and
 Fortinet paths need a first run against actual gear or a lab; expect to adjust

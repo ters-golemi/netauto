@@ -2,8 +2,13 @@
 {% set nav = 'devices' %}
 {% block title %}{{ name }} — Netauto{% endblock %}
 {% block content %}
-<p class="crumb"><a href="/devices">Devices</a> / {{ name }}</p>
+<p class="crumb"><a href="{{ crumb_href|default('/devices') }}">{{ crumb_label|default('Devices') }}</a> / {{ name }}</p>
 <h1>{{ name }}</h1>
+
+{% if adhoc %}
+<p class="filterbar">Ad-hoc session. This host is not in the inventory; nothing
+   about it is stored. <a href="/connect?ip={{ name }}">Change platform or credentials</a></p>
+{% endif %}
 
 {% if error %}<div class="alert block"><strong>Could not reach the device.</strong><p>{{ error }}</p></div>{% endif %}
 
@@ -22,6 +27,7 @@
 <section>
   <h2>Run a read-only command</h2>
   <form class="inline" method="get">
+    {% for k, v in (carry or {}).items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
     <input name="show" value="{{ show }}" placeholder="show ip interface brief"
            spellcheck="false" autocomplete="off">
     <button type="submit" class="primary">Run</button>

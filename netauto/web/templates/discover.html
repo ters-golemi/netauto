@@ -51,6 +51,8 @@
         </div></td>
       {% endif %}
       <td>{% if h.known_as %}<a href="/devices/{{ h.known_as }}">{{ h.known_as }}</a>
+          {% elif not wanted or (h.port(22) and h.port(22).is_open) %}
+            <span class="muted">not managed</span> <a href="/connect?ip={{ h.ip }}">connect</a>
           {% else %}<span class="muted">not managed</span>{% endif %}</td>
     </tr>
   {% endfor %}
@@ -60,7 +62,8 @@
 {% if wanted %}
 <p class="note">An open telnet port is worth chasing: it carries credentials in
    clear text. Anything answering here that is <em>not managed</em> is a host on
-   your network that netauto does not know about.</p>
+   your network that netauto does not know about — <em>connect</em> opens a
+   read-only session against one without adding it to the inventory.</p>
 {% endif %}
 {% elif cidr and not error %}
 <p class="muted">No hosts answered on {{ cidr }}.</p>

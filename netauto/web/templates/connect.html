@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set nav = 'discover' %}
+{% block title %}Connect to {{ ip }} — Netauto{% endblock %}
+{% block content %}
+<p class="crumb"><a href="/discover">Discover</a> / {{ ip }}</p>
+<h1>Connect to {{ ip }}</h1>
+
+{% if error %}<div class="alert block"><strong>Not connected.</strong><p>{{ error }}</p></div>{% endif %}
+
+{% if seen %}
+<table class="data kv">
+  <tbody>
+    <tr><td class="k">hardware</td><td><code>{{ seen.mac or '—' }}</code></td></tr>
+    <tr><td class="k">vendor</td><td>{{ seen.vendor or '—' }}</td></tr>
+    {% for port in seen.open_ports %}
+    <tr><td class="k">port {{ port.number }}</td><td>{{ port.name }}
+        {%- if port.banner %} — <code>{{ port.banner }}</code>{% endif %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<section>
+  <h2>Open a read-only session</h2>
+  <form class="inline" method="get">
+    <input type="hidden" name="ip" value="{{ ip }}">
+    <label for="pf">Platform</label>
+    <select id="pf" name="platform">
+      <option value="">— choose a platform —</option>
+      {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if p == platform }}>{{ p }}</option>{% endfor %}
+    </select>
+    <label for="cr">Credentials</label>
+    <select id="cr" name="credentials">
+      <option value="">— choose a prefix —</option>
+      {% for p in prefixes %}<option value="{{ p }}" {{ 'selected' if p == credentials }}>{{ p }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="primary">Connect</button>
+  </form>
+  {% if platform and not error %}
+  <p class="note">Platform pre-selected from what the sweep saw — an SSH banner is
+     whatever the far end chose to say, so check it before connecting.</p>
+  {% endif %}
+  {% if not prefixes %}
+  <div class="alert block">
+    <strong>No credentials are available to this server.</strong>
+    <p class="note">Secrets are read from the environment at connect time, never
+       entered here. Export a pair before connecting, then restart the service:</p>
+    <p><code>export LAB_USERNAME=… LAB_PASSWORD=…</code></p>
+  </div>
+  {% endif %}
+</section>
+
+<p class="note">This host is not in the inventory, so the session is ad hoc: the
+   device is built for this request and stored nowhere. It reads through the same
+   drivers and the same read-only guard as a managed device, and every command is
+   recorded against your account. To manage it properly — audits, metrics,
+   workflows — add it to <code>inventory/devices.yaml</code> on the server.</p>
+{% endblock %}

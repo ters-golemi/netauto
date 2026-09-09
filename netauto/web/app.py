@@ -25,8 +25,9 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
-from netauto import __version__, drawio, metrics, scan, topology
+from netauto import __version__, adhoc, drawio, metrics, scan, topology
 from netauto.audit import audit_device
+from netauto.config import Settings
 from netauto.drivers import supported_platforms
 from netauto.workflows import runner as workflows
 from netauto.workflows import spec as workflow_spec
@@ -114,6 +115,11 @@ def create_app(users: UserStore | None = None) -> FastAPI:
     # not written to disk.
     workflow_service = workflows.WorkflowService()
     app.state.workflows = workflow_service
+    # Addresses this process has actually seen on the wire. An ad-hoc
+    # connection may target nothing else, so this is a safety boundary rather
+    # than a cache -- see netauto/adhoc.py for what it is defending against.
+    discovered = adhoc.Discovered()
+    app.state.discovered = discovered
     app.add_middleware(
         SessionMiddleware,
         secret_key=secret_key,
@@ -143,10 +149,17 @@ def create_app(users: UserStore | None = None) -> FastAPI:
         expected = request.session.get("csrf", "")
         return bool(expected) and hmac.compare_digest(expected, submitted or "")
 
-    def page(request: Request, name: str, **ctx: Any) -> HTMLResponse:
+    def page(request: Request, template: str, /, **ctx: Any) -> HTMLResponse:
+        """Render a template with the context every page needs.
+
+        The template is positional-only, and its parameter is not called
+        "name". It used to be, which collided with the context every device
+        page passes -- "name" is the device -- so /devices/<name> raised
+        TypeError for anyone logged in, and only for anyone logged in.
+        """
         return templates.TemplateResponse(
             request=request,
-            name=name,
+            name=template,
             context={
                 "version": __version__,
                 "csrf_token": csrf(request),
@@ -254,32 +267,51 @@ def create_app(users: UserStore | None = None) -> FastAPI:
         return page(request, "devices.html", devices=devices, error=error,
                     tag=tag, platform=platform, family_of=platform_family)
 
+    def inspect(request: Request, dev: Any, settings: Settings,
+                show: str) -> dict[str, Any]:
+        """Facts, running config and one guarded command, for any device.
+
+        Shared by the inventory page and an ad-hoc session, because the two
+        differ only in where the Device came from. Nothing here knows which,
+        which is the point: a discovered host gets the same guard and the same
+        audit trail as a managed one.
+        """
+        ctx: dict[str, Any] = {"facts": None, "config": None, "error": None,
+                               "cmd_output": None, "cmd_error": None}
+        try:
+            with connect(dev, settings) as driver:
+                ctx["facts"] = driver.facts()
+                try:
+                    ctx["config"] = driver.get_config("running")
+                except NetautoError as exc:
+                    ctx["error"] = f"Configuration unavailable: {exc}"
+                if show:
+                    try:
+                        ctx["cmd_output"] = driver.run_read(show)
+                        log(request, "run-command", dev.name, show)
+                    except NetautoError as exc:
+                        ctx["cmd_error"] = str(exc)
+                        log(request, "command-refused", dev.name, f"{show} — {exc}")
+        except NetautoError as exc:
+            ctx["error"] = str(exc)
+        return ctx
+
+    def not_inspected(error: str) -> dict[str, Any]:
+        return {"facts": None, "config": None, "error": error,
+                "cmd_output": None, "cmd_error": None}
+
     @app.get("/devices/{name}", response_class=HTMLResponse)
     def device_detail(request: Request, name: str, show: str = ""):
         if not current_user(request):
             return login_redirect()
-        facts = config = error = cmd_output = cmd_error = None
         try:
             settings, inventory = load_context()
             dev = inventory.get(name)
             log(request, "inspect-device", name)
-            with connect(dev, settings) as driver:
-                facts = driver.facts()
-                try:
-                    config = driver.get_config("running")
-                except NetautoError as exc:
-                    error = f"Configuration unavailable: {exc}"
-                if show:
-                    try:
-                        cmd_output = driver.run_read(show)
-                        log(request, "run-command", name, show)
-                    except NetautoError as exc:
-                        cmd_error = str(exc)
-                        log(request, "command-refused", name, f"{show} — {exc}")
+            ctx = inspect(request, dev, settings, show)
         except NetautoError as exc:
-            error = str(exc)
-        return page(request, "device.html", name=name, facts=facts, config=config,
-                    error=error, show=show, cmd_output=cmd_output, cmd_error=cmd_error)
+            ctx = not_inspected(str(exc))
+        return page(request, "device.html", name=name, show=show, **ctx)
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit_page(request: Request, tag: str = "", device: str = ""):
@@ -333,11 +365,46 @@ def create_app(users: UserStore | None = None) -> FastAPI:
                 # value: what is left is what nobody put in the inventory.
                 with contextlib.suppress(NetautoError):
                     hosts = scan.annotate_known(hosts, load_context()[1])
+                # Only these addresses become connectable, and only for a while.
+                discovered.record(hosts)
             except NetautoError as exc:
                 error = str(exc)
         return page(request, "discover.html", hosts=hosts, error=error,
                     cidr=cidr, interface=interface, probe=bool(probe),
                     ports=ports, wanted=wanted, port_names=scan.PORT_NAMES)
+
+    @app.get("/connect", response_class=HTMLResponse)
+    def connect_page(request: Request, ip: str = "", platform: str = "",
+                     credentials: str = "", show: str = ""):
+        """Open a read-only session against a host the inventory has never met.
+
+        Same drivers, same guard, same log as a managed device. The Device is
+        built per request and stored nowhere; what makes that safe is that the
+        address must be one this server swept, not one a URL supplied.
+        """
+        if not current_user(request):
+            return login_redirect()
+        ip = ip.strip()
+        seen = discovered.get(ip)
+        form: dict[str, Any] = {
+            "ip": ip, "seen": seen, "credentials": credentials,
+            "platform": platform or adhoc.guess_for(seen),
+            "platforms": adhoc.connectable_platforms(),
+            "prefixes": adhoc.credential_prefixes(),
+        }
+        if not (platform and credentials):
+            # Nothing chosen yet: ask, with the sweep's evidence in view.
+            return page(request, "connect.html", error=None, **form)
+        try:
+            dev = adhoc.build_device(ip, platform, credentials, discovered)
+            log(request, "connect", dev.name, f"{platform} as {dev.credentials_prefix}")
+            ctx = inspect(request, dev, Settings.load(), show)
+        except NetautoError as exc:
+            return page(request, "connect.html", error=str(exc), **form)
+        return page(request, "device.html", name=dev.name, show=show, adhoc=True,
+                    crumb_href="/discover", crumb_label="Discover",
+                    carry={"ip": ip, "platform": platform, "credentials": credentials},
+                    **ctx)
 
     @app.get("/activity", response_class=HTMLResponse)
     def activity_page(request: Request):

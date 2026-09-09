@@ -94,6 +94,19 @@ def test_session_cookie_is_hardened(client):
     assert "samesite=strict" in cookie.lower().replace(" ", "")
 
 
+def test_the_device_page_renders_for_a_logged_in_user(client):
+    """It raised TypeError on every authenticated request, and only on those.
+
+    page()'s template parameter was called "name", and a device page passes
+    the device name as context. Nothing caught it because the only coverage
+    /devices/<name> had was the logged-out redirect.
+    """
+    _login(client)
+    r = client.get("/devices/core-sw-01")
+    assert r.status_code == 200
+    assert "core-sw-01" in r.text
+
+
 def test_admin_sees_activity(client):
     _login(client, "alice")
     r = client.get("/activity")
@@ -210,3 +223,127 @@ def test_scanned_ports_are_recorded_against_the_account(client, env, swept):
     client.get("/discover?cidr=192.168.1.0/30&probe=1&ports=22,23")
     entry = next(e for e in activity.tail(path=env["log"]) if e["action"] == "discover")
     assert entry["user"] == "bob" and "ports=22,23" in entry["detail"]
+
+
+# --- ad-hoc connections ------------------------------------------------------
+
+@pytest.fixture
+def connectable(client, swept, monkeypatch):
+    """A sweep has happened, so 192.168.1.1 and .9 are connectable."""
+    monkeypatch.setenv("LAB_USERNAME", "admin")
+    monkeypatch.setenv("LAB_PASSWORD", "hunter2")
+    _login(client)
+    client.get("/discover?cidr=192.168.1.0/30&probe=1&ports=22,23")
+    return client
+
+
+def test_connect_requires_a_session(client):
+    r = client.get("/connect?ip=192.168.1.9", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login"
+
+
+def test_connect_form_offers_only_what_can_work(connectable):
+    body = connectable.get("/connect?ip=192.168.1.9").text
+    assert "LAB" in body, "a prefix the environment actually carries"
+    assert "hunter2" not in body, "the value behind it must never be rendered"
+    assert "meraki" not in body, "a cloud tenant has no address to dial"
+    assert "cisco_ios" in body
+
+
+def test_connect_form_preselects_the_guess(connectable):
+    """The sweep saw an SSH banner; the form should not make them guess."""
+    body = connectable.get("/connect?ip=192.168.1.9").text
+    assert 'value="cisco_ios" selected' in body
+
+
+def test_an_unswept_address_is_refused_by_the_route(connectable):
+    body = connectable.get("/connect?ip=192.168.5.5&platform=cisco_ios"
+                           "&credentials=LAB").text
+    assert "not found by a sweep" in body
+
+
+def test_a_routable_address_is_refused_by_the_route(connectable):
+    body = connectable.get("/connect?ip=8.8.8.8&platform=cisco_ios"
+                           "&credentials=LAB").text
+    assert "routable on the internet" in body
+
+
+@pytest.fixture
+def dialled(monkeypatch):
+    """Capture the Device a connection is opened with, without opening one."""
+    import contextlib
+
+    from netauto.web import app as appmod
+    seen: list = []
+
+    class FakeDriver:
+        def facts(self):
+            return {"vendor": "Cisco", "model": "C9300", "os_version": "17.9.4"}
+
+        def get_config(self, kind):
+            return "hostname undocumented-switch\n"
+
+        def run_read(self, command):
+            return f"output of {command}"
+
+    @contextlib.contextmanager
+    def fake_connect(device, settings):
+        seen.append(device)
+        yield FakeDriver()
+
+    monkeypatch.setattr(appmod, "connect", fake_connect)
+    return seen
+
+
+def test_the_transient_device_is_the_address_itself(connectable, dialled):
+    """Named for its address, because that is all that is known about it."""
+    connectable.get("/connect?ip=192.168.1.9&platform=cisco_ios&credentials=LAB")
+    dev = dialled[0]
+    assert dev.name == "192.168.1.9" and dev.host == "192.168.1.9"
+    assert dev.platform == "cisco_ios"
+    assert dev.credentials_prefix == "LAB"
+
+
+def test_an_ad_hoc_session_reads_like_any_device(connectable, dialled):
+    body = connectable.get("/connect?ip=192.168.1.9&platform=cisco_ios&credentials=LAB").text
+    assert "C9300" in body and "undocumented-switch" in body
+    assert "Ad-hoc session" in body
+
+
+def test_the_command_form_carries_the_session(connectable, dialled):
+    """Without the hidden fields, Run would land on /connect with no identity."""
+    body = connectable.get("/connect?ip=192.168.1.9&platform=cisco_ios"
+                           "&credentials=LAB&show=show+version").text
+    assert 'type="hidden" name="ip" value="192.168.1.9"' in body
+    assert 'name="platform" value="cisco_ios"' in body
+
+
+def test_connecting_is_attributed(connectable, env, dialled):
+    connectable.get("/connect?ip=192.168.1.9&platform=cisco_ios&credentials=LAB")
+    entry = next(e for e in activity.tail(path=env["log"]) if e["action"] == "connect")
+    assert entry["target"] == "192.168.1.9"
+    assert "cisco_ios" in entry["detail"] and "LAB" in entry["detail"]
+    assert "hunter2" not in entry["detail"], "the log records the prefix, never the secret"
+
+
+def test_a_failed_connection_reports_rather_than_crashes(connectable, monkeypatch):
+    from netauto.errors import DriverError
+    from netauto.web import app as appmod
+
+    def refuse(device, settings):
+        raise DriverError(f"{device.name}: connection failed: timed out")
+
+    monkeypatch.setattr(appmod, "connect", refuse)
+    body = connectable.get("/connect?ip=192.168.1.9&platform=cisco_ios"
+                           "&credentials=LAB").text
+    assert "connection failed" in body
+
+
+def test_the_discover_page_offers_a_connection(connectable):
+    body = connectable.get("/discover?cidr=192.168.1.0/30&probe=1&ports=22,23").text
+    assert "/connect?ip=192.168.1.1" in body
+
+
+def test_ad_hoc_sessions_add_no_write_route(client):
+    """The guarantee in the footer is unchanged by any of this."""
+    assert_no_write_routes(client.app)

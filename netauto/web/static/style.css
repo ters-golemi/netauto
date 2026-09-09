@@ -248,7 +248,7 @@ h2 .more { font-size:12px; text-transform:none; letter-spacing:0; color:var(--ac
 }
 .act.login, .act.audit { background:var(--good-soft); color:var(--good); }
 .act.login-failed, .act.command-refused { background:var(--bad-soft); color:var(--bad); }
-.act.run-command, .act.discover { background:var(--accent-soft); color:var(--accent); }
+.act.run-command, .act.discover, .act.connect { background:var(--accent-soft); color:var(--accent); }
 
 /* -- embedded Grafana ---------------------------------------------------- */
 
