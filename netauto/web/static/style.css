@@ -188,7 +188,13 @@ tr.row-fail { background:var(--bad-soft); }
 
 .inline { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
 .inline input { min-width:240px; flex:1 1 240px; }
+/* A checkbox is not a text field: without this it inherits the 240px growth
+   above and drifts halfway across the row, away from the words naming it. */
+.inline input[type="checkbox"] { min-width:0; flex:0 0 auto; margin:0 4px 0 0; }
 .inline label { font-size:13px; color:var(--muted); }
+.inline label:has(input[type="checkbox"]) { display:flex; align-items:center; white-space:nowrap; }
+/* A short field should stay short -- the ports box asks for "22,23". */
+.inline input[size] { min-width:0; flex:0 0 auto; width:9ch; }
 .inline .or { color:var(--faint); font-size:13px; }
 
 .btn {

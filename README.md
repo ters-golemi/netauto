@@ -214,6 +214,11 @@ ARP even when they drop ICMP, and useless off it. Tick *check ports* and each
 host that answered is then dialled on the listed ports, SSH and telnet by
 default:
 
+![The Discover page: five hosts on a swept segment, SSH and telnet checked on
+each, with banners, and a link to the two already in the inventory](docs/discover.png)
+
+*Synthetic hosts — the addresses, MACs and banners above are made up.*
+
 ```
 # in the GUI: Discover -> 192.168.1.0/24, check ports, 22,23
 # as an agent tool:
