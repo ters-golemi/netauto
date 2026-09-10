@@ -1,5 +1,11 @@
 # netauto
 
+<!-- The tests badge renders only while this repository is public: GitHub's
+     camo proxy fetches the image without the viewer's credentials, so a
+     private repo answers 404 and the image appears broken even to people who
+     can read the repo. It is here ready for the day that changes; the run
+     status itself is at the link. -->
+[![tests](https://github.com/ters-golemi/netauto/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/ters-golemi/netauto/actions/workflows/tests.yml)
 ![read-only](https://img.shields.io/badge/devices-read--only-brightgreen)
 ![MCP](https://img.shields.io/badge/interface-MCP%20%2B%20web%20GUI-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
