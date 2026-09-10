@@ -179,6 +179,24 @@ def assert_connectable(ip: str, discovered: Discovered) -> str:
     return str(address)
 
 
+def likely_segment(ip: str) -> str:
+    """The segment to offer sweeping, when an address has not been swept yet.
+
+    A starting value for the Discover form rather than a claim: /24 is the
+    overwhelmingly common case for a directly attached segment, and the
+    operator edits the field if theirs is not. Empty for anything a sweep
+    could not reach anyway -- a routable address, or IPv6, where a /24 means
+    nothing.
+    """
+    try:
+        address = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        return ""
+    if address.is_global or address.version != 4:
+        return ""
+    return str(ipaddress.ip_network(f"{address}/24", strict=False))
+
+
 def build_device(ip: str, platform: str, credentials: str,
                  discovered: Discovered) -> Device:
     """A Device that exists for one request and is stored nowhere.

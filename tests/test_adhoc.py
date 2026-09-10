@@ -128,6 +128,16 @@ def test_the_gate_runs_before_the_platform_check(swept):
         adhoc.build_device("192.168.1.99", "nonsense", "LAB", swept)
 
 
+def test_the_segment_to_sweep_is_offered_for_an_unswept_address():
+    assert adhoc.likely_segment("192.168.68.130") == "192.168.68.0/24"
+
+
+@pytest.mark.parametrize("ip", ["8.8.8.8", "fe80::1", "nonsense", ""])
+def test_no_segment_is_offered_where_a_sweep_would_not_help(ip):
+    """A /24 means nothing for IPv6, and nothing routable is sweepable."""
+    assert adhoc.likely_segment(ip) == ""
+
+
 # --- guessing ---------------------------------------------------------------
 
 @pytest.mark.parametrize("banner,expected", [

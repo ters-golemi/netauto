@@ -386,11 +386,23 @@ def create_app(users: UserStore | None = None) -> FastAPI:
             return login_redirect()
         ip = ip.strip()
         seen = discovered.get(ip)
+        # Say up front what pressing Connect would say, rather than letting
+        # someone pick a platform and a prefix for a target that cannot be
+        # reached. Same call the submit path makes, so the wording is one
+        # sentence in one place.
+        blocked = None
+        if ip:
+            try:
+                adhoc.assert_connectable(ip, discovered)
+            except NetautoError as exc:
+                blocked = str(exc)
         form: dict[str, Any] = {
             "ip": ip, "seen": seen, "credentials": credentials,
             "platform": platform or adhoc.guess_for(seen),
             "platforms": adhoc.connectable_platforms(),
             "prefixes": adhoc.credential_prefixes(),
+            "blocked": blocked,
+            "segment": adhoc.likely_segment(ip) if blocked else "",
         }
         if not (platform and credentials):
             # Nothing chosen yet: ask, with the sweep's evidence in view.

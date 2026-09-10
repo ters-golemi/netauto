@@ -5,7 +5,15 @@
 <p class="crumb"><a href="/discover">Discover</a> / {{ ip }}</p>
 <h1>Connect to {{ ip }}</h1>
 
-{% if error %}<div class="alert block"><strong>Not connected.</strong><p>{{ error }}</p></div>{% endif %}
+{% if error %}<div class="alert block"><strong>Not connected.</strong><p>{{ error }}</p></div>
+{% elif blocked %}
+<div class="alert block">
+  <strong>Not connectable.</strong>
+  <p>{{ blocked }}</p>
+  {% if segment %}<p class="note"><a href="/discover?cidr={{ segment }}">Sweep {{ segment }}</a>,
+     then come back — an address is connectable because this server found it.</p>{% endif %}
+</div>
+{% endif %}
 
 {% if seen %}
 <table class="data kv">

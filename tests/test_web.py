@@ -256,6 +256,33 @@ def test_connect_form_preselects_the_guess(connectable):
     assert 'value="cisco_ios" selected' in body
 
 
+def test_the_form_says_up_front_that_a_host_was_not_swept(connectable):
+    """Otherwise it invites you to pick a platform for a refusal."""
+    body = connectable.get("/connect?ip=192.168.5.5").text
+    assert "Not connectable" in body
+    assert "not found by a sweep" in body
+    assert "/discover?cidr=192.168.5.0/24" in body, "offer the sweep that would help"
+
+
+def test_the_form_is_clean_for_an_address_that_was_swept(connectable):
+    body = connectable.get("/connect?ip=192.168.1.9").text
+    assert "Not connectable" not in body
+
+
+def test_no_sweep_is_offered_for_a_routable_address(connectable):
+    body = connectable.get("/connect?ip=8.8.8.8").text
+    assert "routable on the internet" in body
+    assert "/discover?cidr=" not in body
+
+
+def test_the_refusal_is_not_shown_twice_after_submitting(connectable):
+    """error and blocked carry the same sentence; only one may render."""
+    body = connectable.get("/connect?ip=192.168.5.5&platform=cisco_ios"
+                           "&credentials=LAB").text
+    assert body.count("not found by a sweep") == 1
+    assert "Not connectable" not in body and "Not connected" in body
+
+
 def test_an_unswept_address_is_refused_by_the_route(connectable):
     body = connectable.get("/connect?ip=192.168.5.5&platform=cisco_ios"
                            "&credentials=LAB").text
