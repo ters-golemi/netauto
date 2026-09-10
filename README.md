@@ -152,6 +152,13 @@ the account that made it -- logins, failed logins, device inspections, commands
 run, commands refused, audits and discovery sweeps. Greppable directly, or
 viewable at `/activity` by an admin.
 
+![The Activity page: each action with the account that made it, the target and
+the detail — a refused command showing why it was refused](docs/activity.png)
+
+*Synthetic history. This is the only screenshot taken as an administrator,
+which is why an Activity tab appears in the navigation — a standard account
+does not get one, or the page behind it.*
+
 ### Access control
 
 Bcrypt verification with a dummy comparison for unknown users so response time
