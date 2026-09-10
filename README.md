@@ -1,5 +1,9 @@
 # netauto
 
+![read-only](https://img.shields.io/badge/devices-read--only-brightgreen)
+![MCP](https://img.shields.io/badge/interface-MCP%20%2B%20web%20GUI-blue)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+
 Multi-vendor network automation, exposed to agents over MCP. **Read-only by
 design**: it reads device state, audits configuration, and diffs proposed
 changes. It has no commit path.
