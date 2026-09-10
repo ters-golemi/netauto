@@ -382,6 +382,14 @@ opinion. `BUILTIN` itself carries none; the annotation is applied where the
 workflows read the rules, which is why the Audit page and the metrics keep
 evaluating exactly what they did before.
 
+![The Audit page for one switch: four tiles, then every rule with its severity,
+verdict and the configuration line that decided it — failures sorted to the top,
+worst first](docs/audit.png)
+
+*Synthetic switch, real rules: the config is invented, but every rule ID,
+severity, detail and piece of evidence above is what netauto actually produced
+from it.*
+
 Rules take config text plus facts and return pass/fail with evidence. They
 connect to nothing, so they unit-test against captured configs. Each vendor
 rule is fired in both directions in `tests/test_vendor_rules.py`: a rule that
