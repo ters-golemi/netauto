@@ -290,6 +290,13 @@ and exports it as a **draw.io** file — network stencils, orthogonal connectors
 and port labels already placed. draw.io reads and writes `.vsdx`, so that file
 is also the route to something editable in Visio.
 
+![The Topology page after a collection: every link with both port names and
+whether one end or both reported it, the device that could not be asked, and
+the neighbour with no inventory entry](docs/topology.png)
+
+*Synthetic graph. Note the last row — a neighbour LLDP reported that has no
+inventory entry of its own, which is usually the reason to run this.*
+
 ```bash
 # in the GUI: Topology -> Discover links -> Download .drawio
 .venv/bin/python -c "
