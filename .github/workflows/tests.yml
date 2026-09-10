@@ -1,0 +1,57 @@
+name: tests
+
+# The suite needs no network devices and no credentials, so there is nothing
+# here but an interpreter and pip. If a test ever needs a secret or a device to
+# pass on a runner, that is the bug rather than a missing CI step.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Read-only token. Nothing in this job writes to the repository.
+permissions:
+  contents: read
+
+# A superseded push has nothing left to prove; let the newer run take over.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      # One interpreter failing should not hide the others.
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor the README claims, 3.14 is what the maintainer
+        # runs, and 3.12 is the middle that catches what only one end breaks.
+        python: ["3.10", "3.12", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-app.txt
+
+      # requirements-dev.txt, which pulls in requirements-app.txt: minimum
+      # pins that resolve across 3.10-3.14. requirements.txt is an exact
+      # freeze from 3.14 and will fight any other interpreter -- INSTALL.md
+      # says the same thing to anyone installing the service by hand.
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # No arp-scan on the runner, deliberately. A runner has no segment to
+      # sweep, and the suite is expected to pass without it -- discovery
+      # reports the missing binary as an error rather than failing a test.
+      - name: Run the suite
+        run: python -m pytest tests/ -q
