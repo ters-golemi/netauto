@@ -26,9 +26,10 @@ jobs:
       # One interpreter failing should not hide the others.
       fail-fast: false
       matrix:
-        # 3.10 is the floor the README claims, 3.14 is what the maintainer
-        # runs, and 3.12 is the middle that catches what only one end breaks.
-        python: ["3.10", "3.12", "3.14"]
+        # 3.11 is the real floor -- the Meraki SDK requires it, which the
+        # first CI run established by failing to install on 3.10. 3.14 is what
+        # the maintainer runs; 3.12 is the middle, and what 24.04 LTS ships.
+        python: ["3.11", "3.12", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
@@ -42,7 +43,7 @@ jobs:
             requirements-app.txt
 
       # requirements-dev.txt, which pulls in requirements-app.txt: minimum
-      # pins that resolve across 3.10-3.14. requirements.txt is an exact
+      # pins that resolve across 3.11-3.14. requirements.txt is an exact
       # freeze from 3.14 and will fight any other interpreter -- INSTALL.md
       # says the same thing to anyone installing the service by hand.
       - name: Install

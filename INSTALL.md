@@ -1,8 +1,12 @@
 # Installing Netauto on Ubuntu
 
 A production-shaped install: dedicated service user, systemd unit, TLS, and
-firewall. Tested against **Ubuntu 24.04 LTS**; the code also parses cleanly on
-Python 3.10, so **22.04 LTS** works with the same steps.
+firewall. Tested against **Ubuntu 24.04 LTS**, which ships Python 3.12.
+
+**Python 3.11 is the floor**, and it is a hard one: the Meraki SDK requires it,
+so `pip install -r requirements-app.txt` fails outright on anything older
+rather than degrading. That rules out **22.04 LTS** with its stock Python 3.10
+-- install a newer interpreter there (deadsnakes) or use 24.04.
 
 Budget about 20 minutes.
 
@@ -97,7 +101,7 @@ sudo -u netauto .venv/bin/pip install -r requirements-app.txt
 
 Use `requirements-app.txt`, not `requirements.txt`. The latter is an exact
 freeze from Python 3.14 and will fight a different interpreter; the former
-pins minimum versions and resolves cleanly on 3.10–3.12.
+pins minimum versions and resolves cleanly on 3.11–3.14.
 
 Confirm it imported. The test tools are a separate file, since the service
 does not need them at runtime:

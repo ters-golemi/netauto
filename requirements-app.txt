@@ -1,7 +1,8 @@
 # Direct dependencies for netauto, with the versions this was built and
 # tested against. Prefer this over requirements.txt for a fresh install:
 # requirements.txt is an exact freeze from Python 3.14 and will fight a
-# different interpreter. Verified to parse on Python 3.10 through 3.12.
+# different interpreter. Installs on Python 3.11 through 3.14; 3.11 is the
+# floor because meraki requires it, and CI proves the range on every push.
 
 # Device transports
 napalm>=5.2.0

@@ -2,7 +2,7 @@
 
 ![read-only](https://img.shields.io/badge/devices-read--only-brightgreen)
 ![MCP](https://img.shields.io/badge/interface-MCP%20%2B%20web%20GUI-blue)
-![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 Multi-vendor network automation, exposed to agents over MCP. **Read-only by
