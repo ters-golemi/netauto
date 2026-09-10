@@ -409,6 +409,12 @@ needs a real run to shake out. The rules themselves are tested against
 representative config snippets, not captured production configs, so their
 false-positive rate is unmeasured.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: the toolkit reads
+devices and never changes them, four boundaries in the code exist to keep that
+true, and the suite must pass without touching a network device.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
