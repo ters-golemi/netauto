@@ -1,14 +1,19 @@
-#!/home/adiscato/Work/netauto/.venv/bin/python
+#!/usr/bin/env python3
 """Pull the client list from the Deco gateway.
 
 The Deco's own client table carries DHCP hostnames that a LAN scan cannot see,
 so this is what resolves devices that arp-scan can only identify by OUI.
 
-The password is never stored. Supply it via the DECO_PASSWORD environment
-variable, or let the script prompt for it:
+The gateway address and password are yours, not the script's: pass --host or
+set DECO_HOST, and supply the password via DECO_PASSWORD or let the script
+prompt for it. Neither is stored.
 
-    DECO_PASSWORD=... ./deco_clients.py
-    ./deco_clients.py --fingerprint >> scans/latest.txt
+    DECO_HOST=192.168.0.1 DECO_PASSWORD=... ./deco_clients.py
+    ./deco_clients.py --host 192.168.0.1 --fingerprint >> scans/latest.txt
+
+Needs tplink_deco_api, which netauto itself does not depend on:
+
+    pip install tplink-deco-api
 """
 
 import argparse
@@ -18,8 +23,8 @@ import sys
 
 from tplink_deco_api import AuthenticationError, DecoClient, DecoError
 
-DEFAULT_HOST = "192.168.68.1"
-DEFAULT_USER = "admin"
+DEFAULT_HOST = os.environ.get("DECO_HOST", "")
+DEFAULT_USER = os.environ.get("DECO_USER", "admin")
 
 
 def sort_key(client):
@@ -40,6 +45,9 @@ def main():
         help="emit 'ip mac' lines for diffing against a baseline",
     )
     args = parser.parse_args()
+
+    if not args.host:
+        parser.error("no gateway address: pass --host, or set DECO_HOST.")
 
     password = os.environ.get("DECO_PASSWORD") or getpass.getpass(
         f"Deco password for {args.user}@{args.host}: "

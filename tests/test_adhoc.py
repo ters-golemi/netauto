@@ -129,7 +129,7 @@ def test_the_gate_runs_before_the_platform_check(swept):
 
 
 def test_the_segment_to_sweep_is_offered_for_an_unswept_address():
-    assert adhoc.likely_segment("192.168.68.130") == "192.168.68.0/24"
+    assert adhoc.likely_segment("192.168.1.130") == "192.168.1.0/24"
 
 
 @pytest.mark.parametrize("ip", ["8.8.8.8", "fe80::1", "nonsense", ""])
