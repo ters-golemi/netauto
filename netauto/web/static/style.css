@@ -292,8 +292,10 @@ pre.cmd {
 
 /* -- workflows ---------------------------------------------------------- */
 
-.workflow { border-top:1px solid var(--line); padding:14px 0 4px; }
-.workflow h3 { margin:0 0 6px; font-size:15px; }
+/* Qualified to the div it dresses. Unqualified, it also matched the activity
+   badge for the "workflow" action -- see tests/test_styles.py. */
+div.workflow { border-top:1px solid var(--line); padding:14px 0 4px; }
+div.workflow h3 { margin:0 0 6px; font-size:15px; }
 ol.steps { margin:5px 0 12px; padding-left:20px; }
 ol.steps li { margin:4px 0; line-height:1.45; }
 ol.steps .note { margin:2px 0 0; }
