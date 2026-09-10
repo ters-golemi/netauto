@@ -1,0 +1,17 @@
+netauto
+Copyright 2026 Adis Cato
+
+This product is licensed under the Apache License, Version 2.0 (the
+"License"); you may not use this product except in compliance with the
+License. A copy of the License is distributed with this product in the file
+LICENSE, and is available at http://www.apache.org/licenses/LICENSE-2.0.
+
+This file carries the attribution notices that Section 4(d) of the License
+requires to be passed on to derivative works. It is not a dependency
+manifest: netauto vendors no third-party source, and the libraries it imports
+at run time -- napalm, netmiko, pyaoscx, meraki, fortiosapi, FastAPI and the
+rest -- are installed separately and carry their own licenses and notices with
+them. Requirements are listed in requirements.txt and requirements-app.txt.
+
+If third-party source is ever copied into this repository, its attribution
+notice belongs here.
