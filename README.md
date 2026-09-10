@@ -364,9 +364,11 @@ the Audit page and the Prometheus metrics evaluate.
 `netauto/checks/vendor.py` adds 15 more for the workflows -- AAA, legacy
 services, management ACLs, BPDU guard, log timestamps, banners, Junos web
 management and idle timeouts, Aruba loop protection, FortiOS trusted hosts and
-remote logging, and writable SNMP -- and gives all 30 a citation, so a
+remote logging, and writable SNMP -- and gives all 30 a `reference`, so a
 recommendation can be traced to the guide it came from rather than read as an
-opinion.
+opinion. `BUILTIN` itself carries none; the annotation is applied where the
+workflows read the rules, which is why the Audit page and the metrics keep
+evaluating exactly what they did before.
 
 Rules take config text plus facts and return pass/fail with evidence. They
 connect to nothing, so they unit-test against captured configs. Each vendor
