@@ -424,7 +424,7 @@ cannot fail and a rule that cannot pass both look healthy from the outside.
 
 ## Testing
 
-384 tests, no hardware required. The command guard has the heaviest coverage
+398 tests, no hardware required. The command guard has the heaviest coverage
 since it is the safety boundary — including chaining-escape attempts and
 default-deny behaviour.
 

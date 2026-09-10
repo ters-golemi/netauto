@@ -111,7 +111,7 @@ sudo -u netauto .venv/bin/pip install -r requirements-dev.txt
 sudo -u netauto .venv/bin/python -m pytest tests/ -q
 ```
 
-You should see **384 passed**. These tests need no network devices, so this
+You should see **398 passed**. These tests need no network devices, so this
 validates the install before any device credentials exist.
 
 ## 5. Let discovery work without root
