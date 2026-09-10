@@ -97,6 +97,13 @@ Tests must not touch the network or the developer's LAN. Patch at the seam
 instead — `netauto.web.app.connect`, `netauto.scan.arp_sweep` — and assert on
 what was passed to it.
 
+They must also pass on a clean checkout. `config.yaml` and
+`inventory/devices.yaml` are gitignored, so a test that reads them passes on
+the machine that has them and fails everywhere else — which is exactly what CI
+caught the day it was added. A route that needs an inventory should be given
+one: patch `netauto.web.app.load_context` to return a `Settings` and an
+`Inventory` the test controls.
+
 `tests/test_docs.py` holds the documentation to the code: it exists because a
 grep documented in `INSTALL.md` matched no log entry ever, and read as "no
 commands were run". If you document a command, a count or a table, consider

@@ -377,6 +377,16 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("NETAUTO_SECRET_KEY", "test-key-not-for-production")
     monkeypatch.setenv("NETAUTO_ACTIVITY_LOG", str(tmp_path / "activity.log"))
     monkeypatch.delenv("NETAUTO_METRICS_TOKEN", raising=False)
+    # The routes load settings and an inventory before they collect anything.
+    # Without this they read whatever config.yaml and inventory/devices.yaml
+    # happen to sit in the checkout -- which is a gitignored pair, so these
+    # tests passed on a machine that had them and failed everywhere else.
+    monkeypatch.setattr(
+        appmod, "load_context",
+        lambda *a, **kw: (_settings(),
+                          _inventory(_dev("rtr", "juniper_junos", ("core",)),
+                                     _dev("sw", "cisco_ios", ("core",)),
+                                     _dev("fw", "fortinet_cli", ("edge",)))))
     store = UserStore(tmp_path / "users.yaml")
     store.add("alice", "correct-horse-battery-staple", admin=True)
     appmod._FAILURES.clear()

@@ -369,6 +369,14 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("NETAUTO_SECRET_KEY", "test-key-not-for-production")
     monkeypatch.setenv("NETAUTO_ACTIVITY_LOG", str(tmp_path / "activity.log"))
     monkeypatch.delenv("NETAUTO_METRICS_TOKEN", raising=False)
+    # The page counts devices per platform, so it needs an inventory. Supply
+    # one rather than reading whichever gitignored inventory/devices.yaml the
+    # checkout happens to have -- see the same note in test_topology.py.
+    monkeypatch.setattr(
+        appmod, "load_context",
+        lambda *a, **kw: (Settings(inventory_path="unused"),
+                          Inventory([Device(name="sw", platform="cisco_ios",
+                                            host="10.0.0.1", credentials="X")])))
     store = UserStore(tmp_path / "users.yaml")
     store.add("alice", "correct-horse-battery-staple", admin=True)
     appmod._FAILURES.clear()
