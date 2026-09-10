@@ -106,6 +106,13 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 ./run-web.sh
 ```
 
+![The Devices page: the inventory with each device's platform, guard family,
+address and tags, and an Inspect button per row](docs/devices.png)
+
+*Synthetic inventory. The `arista_eos` rows show family `cisco` because the
+command guard judges Arista by Cisco syntax — the family is the allowlist that
+applies, not the vendor.*
+
 Pages: overview, device list, per-device facts and running config, a read-only
 command box, compliance audit by group, ARP discovery with an optional
 SSH/telnet port check, ad-hoc sessions against discovered hosts, LLDP
