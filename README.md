@@ -3,6 +3,7 @@
 ![read-only](https://img.shields.io/badge/devices-read--only-brightgreen)
 ![MCP](https://img.shields.io/badge/interface-MCP%20%2B%20web%20GUI-blue)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 Multi-vendor network automation, exposed to agents over MCP. **Read-only by
 design**: it reads device state, audits configuration, and diffs proposed
@@ -407,3 +408,7 @@ per-command gap rather than a failed device, which is exactly the case that
 needs a real run to shake out. The rules themselves are tested against
 representative config snippets, not captured production configs, so their
 false-positive rate is unmeasured.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). Copyright 2026 Adis Cato.
