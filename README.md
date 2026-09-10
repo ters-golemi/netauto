@@ -252,10 +252,9 @@ request and stored nowhere; the platform is pre-selected from the SSH banner
 and MAC vendor, and the credentials come from an environment prefix the server
 already carries, chosen by name. No secret is typed into the browser.
 
-```
-Discover -> 192.168.1.9 [connect] -> platform: aruba_aoscx   (guessed)
-                                     credentials: LAB        (from the environment)
-```
+![The connect page for a discovered host: what the sweep saw, a platform
+pre-selected from the MAC vendor, and a credentials prefix chosen by
+name](docs/connect.png)
 
 The prefixes offered are read out of the environment, so the list is exactly
 what this server can authenticate with -- export `LAB_USERNAME` and
