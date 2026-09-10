@@ -424,9 +424,9 @@ cannot fail and a rule that cannot pass both look healthy from the outside.
 
 ## Testing
 
-398 tests, no hardware required. The command guard has the heaviest coverage
-since it is the safety boundary — including chaining-escape attempts and
-default-deny behaviour.
+The suite needs no hardware and no credentials. The command guard has the
+heaviest coverage since it is the safety boundary — including chaining-escape
+attempts and default-deny behaviour.
 
 ```bash
 .venv/bin/python -m pytest tests/ -q

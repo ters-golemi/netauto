@@ -22,6 +22,7 @@ from netauto.web import activity
 
 ROOT = Path(__file__).resolve().parent.parent
 INSTALL = ROOT / "INSTALL.md"
+README = ROOT / "README.md"
 GRAFANA_README = ROOT / "deploy" / "grafana" / "README.md"
 RULES = ROOT / "deploy" / "grafana" / "rules.yml"
 
@@ -98,4 +99,20 @@ def test_each_documented_alert_carries_its_real_severity_and_delay():
         assert f"held {delay}" in doc_text, (
             f"{name} fires after {delay} in rules.yml, which the README row "
             f"does not say: {doc_text!r}"
+        )
+
+def test_no_document_pins_a_test_count():
+    """A hand-maintained count is a claim that goes stale on the next commit.
+
+    Both documents carried one and both were wrong: they said 384 while the
+    suite ran 393, then 398, drifting through five commits including the two
+    that added the tests. Nothing else in these files claims a number that
+    changes every time anyone writes a test, so the rule is simply not to.
+    """
+    pattern = re.compile(r"\b\d{2,4}\s+(tests?\b|passed\b)", re.I)
+    for doc in (README, INSTALL):
+        found = pattern.findall(doc.read_text())
+        assert not found, (
+            f"{doc.name} pins a test count, which drifts the next time anyone "
+            f"adds a test: {found}. Say what the suite needs instead."
         )
