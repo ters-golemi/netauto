@@ -106,6 +106,12 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 ./run-web.sh
 ```
 
+![The Overview page: four counts, the inventory broken down by vendor family
+and by tag, and the twelve platform strings that have drivers](docs/dashboard.png)
+
+*Synthetic inventory. The counts are of what is in the inventory file; the
+twelve platforms are what netauto has drivers for, whether or not you run any.*
+
 ![The Devices page: the inventory with each device's platform, guard family,
 address and tags, and an Inspect button per row](docs/devices.png)
 
