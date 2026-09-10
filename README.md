@@ -161,6 +161,13 @@ Two multi-step pipelines, one pair per supported platform -- 24 in all, under
 the **Workflows** tab. They are per-platform because the useful part is the
 show-command set, and that does not generalise.
 
+![The Workflows tab: each platform lists both pipelines with every step named,
+how many inventory devices it would run against, and an optional tag
+filter](docs/workflows.png)
+
+*Synthetic inventory. Each platform's card states its device count, and a
+platform with none says so instead of offering a run.*
+
 **Device Configuration Check** connects, pulls the running configuration and
 the platform's read-only command set, compares both against the vendor-guide
 ruleset, and reports what to improve -- each finding with a severity, the
