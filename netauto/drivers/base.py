@@ -153,11 +153,53 @@ class Driver(ABC):
     def apply_config(self, config: str, *, confirm: str | None = None) -> str:
         """Refuse to commit. Present so callers get a clear error, not AttributeError.
 
-        Diffing a candidate against the running configuration is supported via
-        netauto.diffing and needs no write access.
+        There is deliberately no configuration commit path. The one write
+        netauto has is firmware upgrade -- a distinct, separately gated
+        operation -- not arbitrary config. Review a change with
+        netauto.diffing and apply it through your own change process.
         """
         raise WriteDisabled(
-            f"Writes are disabled. {type(self).__name__} implements no commit path, "
-            f"and allow_writes is {self.settings.allow_writes}. Use net_config_diff to "
-            f"review the change, then apply it through your own change process."
+            f"Configuration writes are disabled. {type(self).__name__} implements no "
+            f"commit path. Use net_config_diff to review the change, then apply it "
+            f"through your own change process."
+        )
+
+    def upgrade_firmware(self, *, image: str, server: str, protocol: str = "tftp",
+                         stage_only: bool = False, confirm: str | None = None) -> str:
+        """Install a firmware image on the device. netauto's one write operation.
+
+        Read paths are unaffected: this does not go through run_read or the
+        command guard. It is instead gated three independent ways, so it can
+        never fire by accident or as a side effect of a read:
+
+        1. allow_writes must be enabled in config.yaml. Off by default.
+        2. The driver must declare the "upgrade" capability -- most do not.
+        3. The caller must pass confirm equal to the device name.
+
+        The device reboots to load the image. stage_only transfers and validates
+        it without rebooting, where the platform supports staging.
+        """
+        if not self.settings.allow_writes:
+            raise WriteDisabled(
+                f"Firmware upgrade is a write, and allow_writes is false. Enable it "
+                f"in config.yaml to permit upgrades; it gates nothing else."
+            )
+        if "upgrade" not in self.capabilities:
+            raise UnsupportedOperation(
+                f"{type(self).__name__} has no firmware-upgrade path."
+            )
+        if confirm != self.device.name:
+            raise WriteDisabled(
+                f"Upgrade of {self.device.name!r} not confirmed. Pass "
+                f"confirm={self.device.name!r} to proceed -- this reboots the device."
+            )
+        return self._do_upgrade(image=image, server=server, protocol=protocol,
+                                stage_only=stage_only)
+
+    def _do_upgrade(self, *, image: str, server: str, protocol: str,
+                    stage_only: bool) -> str:
+        """Platform-specific firmware install. Reached only past the gates above."""
+        raise UnsupportedOperation(
+            f"{type(self).__name__} declares the upgrade capability but implements "
+            f"no _do_upgrade."
         )

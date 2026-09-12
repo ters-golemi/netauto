@@ -11,7 +11,7 @@ from typing import Any
 
 from netauto.config import resolve_credentials
 from netauto.drivers.base import Driver, assert_read_only
-from netauto.errors import AuthError, DriverError, UnsupportedOperation
+from netauto.errors import AuthError, DriverError, UnsupportedOperation, UpgradeError
 
 
 class NetmikoDriver(Driver):
@@ -221,4 +221,32 @@ class FortinetCliDriver(NetmikoDriver):
     # <port>"), so there is nothing to enumerate a whole device with. Declared
     # unsupported rather than guessed at -- the topology run reports it as a
     # gap instead of silently drawing a firewall with no links.
-    capabilities = frozenset({"facts", "config", "command"})
+    #
+    # "upgrade" is the one write capability: a FortiOS/FortiSwitch unit takes a
+    # firmware image over the CLI. See _do_upgrade; the gate is in the base.
+    capabilities = frozenset({"facts", "config", "command", "upgrade"})
+
+    def _do_upgrade(self, *, image: str, server: str, protocol: str,
+                    stage_only: bool) -> str:
+        """Start a FortiOS/FortiSwitch firmware transfer over the CLI.
+
+        The switch pulls the image from a TFTP or FTP server the operator runs;
+        netauto sends the command that starts the pull. `restore` reboots into
+        the new image; `stage` validates and stores it without rebooting. Reached
+        only past the three gates in Driver.upgrade_firmware.
+        """
+        conn = self._require()
+        if protocol not in ("tftp", "ftp"):
+            raise UpgradeError(f"{self.device.name}: unsupported transfer protocol "
+                               f"{protocol!r}; use 'tftp' or 'ftp'.")
+        verb = "stage" if stage_only else "restore"
+        cmd = f"execute {verb} image {protocol} {image} {server}"
+        try:
+            out = conn.send_command_timing(cmd, read_timeout=self.settings.command_timeout)
+            if any(w in out.lower() for w in ("y/n", "(y/n)", "continue")):
+                out += conn.send_command_timing("y", read_timeout=self.settings.command_timeout)
+        except Exception as exc:
+            raise UpgradeError(f"{self.device.name}: {cmd!r} failed: {exc}") from exc
+        if any(w in out.lower() for w in ("invalid", "cannot", "not found", "fail", "error")):
+            raise UpgradeError(f"{self.device.name}: device rejected the image. {out.strip()[:300]}")
+        return out.strip() or f"{verb} started: {image} from {protocol}://{server}"

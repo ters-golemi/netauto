@@ -36,3 +36,12 @@ class UnsafeCommand(NetautoError):
 
 class WriteDisabled(NetautoError):
     """A write was attempted while allow_writes is false."""
+
+
+class UpgradeError(DriverError):
+    """A firmware upgrade could not be started or did not take.
+
+    Distinct from WriteDisabled: writes were permitted and something went wrong
+    on the wire -- the image was rejected, the transfer failed, the device did
+    not come back.
+    """

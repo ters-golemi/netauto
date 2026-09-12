@@ -19,3 +19,8 @@ activity.log
 deploy/grafana/scrape-token
 deploy/grafana/.env
 deploy/grafana/data/
+
+# Firmware images are large binaries — keep them out of git (README is kept).
+firmware/**/*.out
+firmware/**/*.zip
+firmware/**/*.bin
