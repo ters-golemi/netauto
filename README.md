@@ -435,8 +435,15 @@ attempts and default-deny behaviour.
 ## What is not verified
 
 The vendor drivers are written against each SDK's documented API and are
-exercised by import and signature checks, but **only the local ARP discovery
-path has been run against real equipment**. The port probe is tested against
+exercised by import and signature checks, and the **`fortinet_cli` path is
+the first to have been run against real equipment** -- connect, authenticate,
+`get system status`, full-configuration retrieval and the read-only guard,
+against a FortiSwitch 108F on FortiSwitchOS 7.2.7. That run found the facts
+parser returning `get system status` as one raw blob, since it was written
+for FortiGate; it now parses the shared label set (model, os_version, serial,
+hostname), tested against the captured 108F output. Every other driver path is
+still exercised only by tests, and **local ARP discovery** was the only
+real-equipment coverage before this. The port probe is tested against
 real sockets on the loopback -- a listener that answers, one that stays silent,
 a closed port -- but has not been pointed at production gear. An ad-hoc session
 has never opened against a real device either: the target gate and the

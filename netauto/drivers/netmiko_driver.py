@@ -61,14 +61,26 @@ class NetmikoDriver(Driver):
             raise DriverError(f"{self.device.name}: driver is not open.")
         return self._conn
 
+    def _parse_facts(self, output: str) -> dict[str, Any]:
+        """Structured fields pulled from facts_command output.
+
+        The base extracts nothing: facts_command differs per platform and a
+        generic parser would guess. A subclass whose command has a known shape
+        overrides this. Whatever it returns is merged over the raw output, so
+        a driver that parses nothing still gets version_output.
+        """
+        return {}
+
     def facts(self) -> dict[str, Any]:
         output = self.run_read(self.facts_command)
-        return {
+        facts: dict[str, Any] = {
             "name": self.device.name,
             "platform": self.device.platform,
             "hostname": getattr(self._require(), "base_prompt", None),
             "version_output": output.strip(),
         }
+        facts.update((k, v) for k, v in self._parse_facts(output).items() if v)
+        return facts
 
     def get_config(self, kind: str = "running") -> str:
         if kind != "running":
@@ -156,6 +168,49 @@ class FortinetCliDriver(NetmikoDriver):
     device_type = "fortinet"
     running_config_command = "show full-configuration"
     facts_command = "get system status"
+
+    def _parse_facts(self, output: str) -> dict[str, Any]:
+        """Structured fields from `get system status`.
+
+        The labels are shared by FortiGate and FortiSwitch -- Version,
+        Serial-Number, Hostname -- so one parser serves both. The Version
+        line carries three facts at once, e.g.
+
+            Version: FortiSwitch-108F v7.2.7,build0479,240214 (GA)
+
+        model FortiSwitch-108F, os_version 7.2.7, build 0479. Written from a
+        FortiSwitch 108F running 7.2.7, the first real gear this path met, so
+        the FortiSwitch label set is what it is tested against; the FortiGate
+        variant shares these keys.
+        """
+        facts: dict[str, Any] = {}
+        for line in output.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            key, value = key.strip().lower(), value.strip()
+            if not value:
+                continue
+            if key == "version":
+                # "<model> v<os>,build<n>,<date> (<branch>)"
+                head, _, tail = value.partition(" ")
+                facts["model"] = head
+                for token in tail.split(","):
+                    token = token.strip()
+                    if token.startswith("v") and token[1:2].isdigit():
+                        facts["os_version"] = token[1:]
+                    elif token.startswith("build"):
+                        facts["build"] = token[len("build"):]
+            elif key == "serial-number":
+                facts["serial"] = value
+            elif key == "hostname":
+                facts["hostname"] = value
+            elif key == "bios version":
+                facts["bios_version"] = value
+            elif key == "system part-number":
+                facts["part_number"] = value
+        return facts
+
     # No estate-wide LLDP command here worth relying on: FortiOS exposes
     # neighbours per-port ("diagnose lldprx port neighbor-details port-name
     # <port>"), so there is nothing to enumerate a whole device with. Declared
