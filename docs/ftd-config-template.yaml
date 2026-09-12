@@ -8,6 +8,10 @@
 #
 # netauto cannot apply this. It has no commit path by design.
 #
+# Topology: one switch. A FortiSwitch 108F is the access switch, trunked to
+# Ethernet1/8. There is no dedicated management VLAN — FDM, the switch and the
+# AP are all reached from VLAN 10, the users VLAN.
+#
 # Companion document: docs/lab-data-plane.md
 
 device:
@@ -16,22 +20,56 @@ device:
   software: FTD 6.5 or later          # trunk switchports require 6.5+
   manager: FDM (on-box)
 
-management:                            # already built, do not re-apply
+management_interface:
   interface: Management1/1
   ipv4: 10.10.99.10/24
-  gateway: data-interfaces             # routes mgmt traffic via the data path
+  gateway: data-interfaces             # routes mgmt traffic out via the data path
   dns: [8.8.8.8]
-  ssh_access_list: [10.10.99.0/24]
-  https_access_list: [10.10.99.0/24]
+  cable: disconnected
+  role: >
+    Kept configured but unplugged. 10.10.99.0/24 overlaps nothing, so the port
+    stays a direct-attach way back in when the data path is broken: set a
+    laptop to 10.10.99.x, plug into Management1/1, reach FDM. Because the
+    gateway is data-interfaces, licensing and update traffic still egresses
+    over the data path with the cable out.
+  access_lists:                        # these apply to Management1/1 only
+    ssh: [10.10.99.0/24]
+    https: [10.10.99.0/24]
+
+management_access:
+  # How FDM is reached in normal operation. This is to-the-box traffic and is
+  # NOT evaluated by access_policy below.
+  - interface: VLAN10
+    protocols: [https, ssh]
+    allowed_sources: [10.10.10.20/32]
+    comment: >
+      A /32, not the VLAN 10 subnet. Management now shares the users VLAN, so
+      permitting 10.10.10.0/24 would make every user machine an administrative
+      source. Restricting to the NetAuto host is what keeps this design from
+      being materially weaker than the out-of-band one it replaced.
 
 prerequisites:
-  - action: delete_interface
-    target: VLAN1
+  - action: add_management_access_rule
+    target: VLAN10
+    order: first
     reason: >
-      The management build left an inside interface on VLAN1 holding
-      10.10.10.0/24. It must be removed before VLAN10 can claim that subnet,
-      and its switch ports freed before Ethernet1/2 can become a trunk.
-      Safe to do because the device is reachable on Management1/1.
+      Confirm FDM answers on https://10.10.10.1 from the NetAuto host BEFORE
+      unplugging Management1/1. The other order leaves the console as the only
+      way in.
+
+  - action: delete_interface
+    target: VLAN40
+    reason: >
+      VLAN 40 held the users subnet while VLAN 10 was the management VLAN. With
+      the dedicated management VLAN gone, users return to VLAN 10 and VLAN 40
+      is removed along with its zone, NAT rule and access rules.
+
+  - action: reassign_trunk
+    from: Ethernet1/2
+    to: Ethernet1/8
+    reason: >
+      The switch uplink moves to Ethernet1/8. Ethernet1/2 returns to disabled.
+      Free its switch-port membership before configuring Ethernet1/8.
 
 security_zones:
   - name: outside-zone
@@ -48,15 +86,15 @@ interfaces:
     obtain_default_route: true
     enabled: true
 
-  - name: Ethernet1/2
+  - name: Ethernet1/8
     mode: switchport
     switchport_mode: trunk
     native_vlan: 1                     # carries nothing; untagged frames dropped
     allowed_vlans: [10, 20, 30]
-    description: Trunk to HPE Instant On 1930, port 1
+    description: Trunk to FortiSwitch 108F, port1
     enabled: true
 
-  - name: [Ethernet1/3, Ethernet1/4, Ethernet1/5, Ethernet1/6, Ethernet1/7, Ethernet1/8]
+  - name: [Ethernet1/2, Ethernet1/3, Ethernet1/4, Ethernet1/5, Ethernet1/6, Ethernet1/7]
     enabled: false
 
 vlan_interfaces:
@@ -65,6 +103,7 @@ vlan_interfaces:
     zone: users-zone
     ipv4: 10.10.10.1/24
     enabled: true
+    comment: Also the address FDM is reached on. See management_access.
 
   - vlan_id: 20
     logical_name: servers
@@ -79,33 +118,33 @@ vlan_interfaces:
     enabled: true
 
 network_objects:
-  - {name: net-users,   type: network, value: 10.10.10.0/24}
-  - {name: net-servers, type: network, value: 10.10.20.0/24}
-  - {name: net-wifi,    type: network, value: 10.10.30.0/24}
-  - {name: net-data,    type: network, value: 10.10.0.0/18}
-  - {name: net-mgmt,    type: network, value: 10.10.99.0/24}
-  - {name: dns-google,  type: host,    value: 8.8.8.8}
+  - {name: net-users,    type: network, value: 10.10.10.0/24}
+  - {name: net-servers,  type: network, value: 10.10.20.0/24}
+  - {name: net-wifi,     type: network, value: 10.10.30.0/24}
+  - {name: host-netauto, type: host,    value: 10.10.10.20}
+  - {name: host-fsw,     type: host,    value: 10.10.10.12}
+  - {name: host-ap,      type: host,    value: 10.10.10.13}
+  - {name: dns-google,   type: host,    value: 8.8.8.8}
 
 dns:
   data_interface_group:
     servers: [8.8.8.8]
-    # Clients receive 8.8.8.8 directly via DHCP and resolve against Google,
-    # so the FTD is not acting as a resolver for the data VLANs. No
-    # to-the-box DNS exception is needed in the access policy.
+    # Clients receive 8.8.8.8 directly via DHCP and resolve against Google, so
+    # the FTD is not acting as a resolver for the data VLANs. No to-the-box DNS
+    # exception is needed in the access policy.
 
 nat:
-  # Dynamic PAT to the outside interface address, one rule per data VLAN.
-  # Every rule names outside-zone as destination, so inter-VLAN traffic
-  # matches none of them and is routed untranslated.
-  inbound: []                        # nothing is published to the internet
-
+  inbound: []                          # nothing is published to the internet
   outbound:
+    # Dynamic PAT to the outside interface address, one rule per VLAN. Every
+    # rule names outside-zone as destination, so inter-VLAN traffic matches
+    # none of them and is routed untranslated.
     - name: pat-users
       type: manual
       source_zone: users-zone
       destination_zone: outside-zone
       original_source: net-users
-      translated_source: interface       # outside interface address
+      translated_source: interface     # outside interface address
       translation: dynamic_pat
 
     - name: pat-servers
@@ -126,7 +165,8 @@ nat:
 
 access_policy:
   default_action: BLOCK
-  # Order matters. First match wins.
+  # Order matters. First match wins. Traffic addressed to the firewall itself
+  # is not evaluated here — see management_access.
   rules:
     - order: 1
       name: wifi-to-internal-block
@@ -136,8 +176,10 @@ access_policy:
       log: true
       comment: >
         Redundant against the default block, and kept deliberately. States the
-        isolation as policy and gives an auditable hit counter. An implicit
-        deny proves nothing in a report.
+        isolation as policy and gives an auditable hit counter — an implicit
+        deny proves nothing in a report. It matters more than it used to:
+        management lives on VLAN 10 now, so this is the rule keeping wireless
+        clients away from the administrative segment.
 
     - order: 2
       name: internal-to-wifi-block
@@ -145,7 +187,10 @@ access_policy:
       destination_zones: [wifi-zone]
       action: BLOCK
       log: true
-      comment: WiFi isolation is bidirectional.
+      comment: >
+        WiFi isolation is bidirectional. Consequence worth knowing: the AP has
+        to be administered from a wired VLAN 10 host, not over the wireless it
+        serves.
 
     - order: 3
       name: users-to-servers
@@ -191,6 +236,11 @@ dhcp_servers:
     gateway: 10.10.10.1
     dns: [8.8.8.8]
     enabled: true
+    reserved_below_pool:
+      - {address: 10.10.10.1,  host: FTD VLAN10 interface, note: FDM is here}
+      - {address: 10.10.10.12, host: FortiSwitch 108F}
+      - {address: 10.10.10.13, host: Access point}
+      - {address: 10.10.10.20, host: NetAuto host, note: only trusted management source}
 
   - interface: VLAN30
     pool: 10.10.30.100-10.10.30.200
@@ -214,4 +264,6 @@ expected_behaviour:
   - {from: VLAN30, to: VLAN20, result: blocked}
   - {from: VLAN10, to: VLAN30, result: blocked}
   - {from: VLAN20, to: VLAN30, result: blocked}
-  - {from: any data VLAN, to: VLAN99, result: blocked, note: no L3 path exists}
+  - {from: 10.10.10.20, to: FDM, result: allowed, governed_by: management_access}
+  - {from: other VLAN10 hosts, to: FDM, result: blocked, governed_by: management_access}
+  - {from: VLAN20 or VLAN30, to: FDM, result: blocked, governed_by: management_access}
