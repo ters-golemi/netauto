@@ -1,0 +1,216 @@
+# FTD configuration template — Cisco Firepower 1010, FDM-managed
+#
+# This is a SPEC, not an applyable config. FTD's CLI configures the management
+# plane and runs show commands; interfaces, NAT and access rules are FDM-only.
+# There is no `configure terminal` equivalent to paste. Use this to drive the
+# FDM GUI, to diff intent against a running device, or as the input to an
+# FDM REST API script.
+#
+# netauto cannot apply this. It has no commit path by design.
+#
+# Companion document: docs/lab-data-plane.md
+
+device:
+  hostname: ftd-edge-01
+  model: Cisco Firepower 1010
+  software: FTD 6.5 or later          # trunk switchports require 6.5+
+  manager: FDM (on-box)
+
+management:                            # already built, do not re-apply
+  interface: Management1/1
+  ipv4: 10.10.99.10/24
+  gateway: data-interfaces             # routes mgmt traffic via the data path
+  dns: [8.8.8.8]
+  ssh_access_list: [10.10.99.0/24]
+  https_access_list: [10.10.99.0/24]
+
+prerequisites:
+  - action: delete_interface
+    target: VLAN1
+    reason: >
+      The management build left an inside interface on VLAN1 holding
+      10.10.10.0/24. It must be removed before VLAN10 can claim that subnet,
+      and its switch ports freed before Ethernet1/2 can become a trunk.
+      Safe to do because the device is reachable on Management1/1.
+
+security_zones:
+  - name: outside-zone
+  - name: users-zone
+  - name: servers-zone
+  - name: wifi-zone
+
+interfaces:
+  - name: Ethernet1/1
+    mode: firewall
+    logical_name: outside
+    zone: outside-zone
+    ipv4: dhcp
+    obtain_default_route: true
+    enabled: true
+
+  - name: Ethernet1/2
+    mode: switchport
+    switchport_mode: trunk
+    native_vlan: 1                     # carries nothing; untagged frames dropped
+    allowed_vlans: [10, 20, 30]
+    description: Trunk to HPE Instant On 1930, port 1
+    enabled: true
+
+  - name: [Ethernet1/3, Ethernet1/4, Ethernet1/5, Ethernet1/6, Ethernet1/7, Ethernet1/8]
+    enabled: false
+
+vlan_interfaces:
+  - vlan_id: 10
+    logical_name: users
+    zone: users-zone
+    ipv4: 10.10.10.1/24
+    enabled: true
+
+  - vlan_id: 20
+    logical_name: servers
+    zone: servers-zone
+    ipv4: 10.10.20.1/24
+    enabled: true
+
+  - vlan_id: 30
+    logical_name: wifi
+    zone: wifi-zone
+    ipv4: 10.10.30.1/24
+    enabled: true
+
+network_objects:
+  - {name: net-users,   type: network, value: 10.10.10.0/24}
+  - {name: net-servers, type: network, value: 10.10.20.0/24}
+  - {name: net-wifi,    type: network, value: 10.10.30.0/24}
+  - {name: net-data,    type: network, value: 10.10.0.0/18}
+  - {name: net-mgmt,    type: network, value: 10.10.99.0/24}
+  - {name: dns-google,  type: host,    value: 8.8.8.8}
+
+dns:
+  data_interface_group:
+    servers: [8.8.8.8]
+    # Clients receive 8.8.8.8 directly via DHCP and resolve against Google,
+    # so the FTD is not acting as a resolver for the data VLANs. No
+    # to-the-box DNS exception is needed in the access policy.
+
+nat:
+  # Dynamic PAT to the outside interface address, one rule per data VLAN.
+  # Every rule names outside-zone as destination, so inter-VLAN traffic
+  # matches none of them and is routed untranslated.
+  - name: pat-users
+    type: manual
+    source_zone: users-zone
+    destination_zone: outside-zone
+    original_source: net-users
+    translated_source: interface       # outside interface address
+    translation: dynamic_pat
+
+  - name: pat-servers
+    type: manual
+    source_zone: servers-zone
+    destination_zone: outside-zone
+    original_source: net-servers
+    translated_source: interface
+    translation: dynamic_pat
+
+  - name: pat-wifi
+    type: manual
+    source_zone: wifi-zone
+    destination_zone: outside-zone
+    original_source: net-wifi
+    translated_source: interface
+    translation: dynamic_pat
+
+  inbound: []                          # nothing is published to the internet
+
+access_policy:
+  default_action: BLOCK
+  # Order matters. First match wins.
+  rules:
+    - order: 1
+      name: wifi-to-internal-block
+      source_zones: [wifi-zone]
+      destination_zones: [users-zone, servers-zone]
+      action: BLOCK
+      log: true
+      comment: >
+        Redundant against the default block, and kept deliberately. States the
+        isolation as policy and gives an auditable hit counter. An implicit
+        deny proves nothing in a report.
+
+    - order: 2
+      name: internal-to-wifi-block
+      source_zones: [users-zone, servers-zone]
+      destination_zones: [wifi-zone]
+      action: BLOCK
+      log: true
+      comment: WiFi isolation is bidirectional.
+
+    - order: 3
+      name: users-to-servers
+      source_zones: [users-zone]
+      destination_zones: [servers-zone]
+      action: ALLOW
+      log: true
+
+    - order: 4
+      name: servers-to-users
+      source_zones: [servers-zone]
+      destination_zones: [users-zone]
+      action: ALLOW
+      log: true
+      comment: >
+        FDM rules are directional. Inspection is stateful, so return traffic
+        needs no rule — but a connection opened from the server side does.
+
+    - order: 5
+      name: users-to-internet
+      source_zones: [users-zone]
+      destination_zones: [outside-zone]
+      action: ALLOW
+      log: true
+
+    - order: 6
+      name: servers-to-internet
+      source_zones: [servers-zone]
+      destination_zones: [outside-zone]
+      action: ALLOW
+      log: true
+
+    - order: 7
+      name: wifi-to-internet
+      source_zones: [wifi-zone]
+      destination_zones: [outside-zone]
+      action: ALLOW
+      log: true
+
+dhcp_servers:
+  - interface: VLAN10
+    pool: 10.10.10.100-10.10.10.200
+    gateway: 10.10.10.1
+    dns: [8.8.8.8]
+    enabled: true
+
+  - interface: VLAN30
+    pool: 10.10.30.100-10.10.30.200
+    gateway: 10.10.30.1
+    dns: [8.8.8.8]
+    enabled: true
+
+  # VLAN20 intentionally has no DHCP server. Servers are statically addressed.
+
+routing:
+  default_route: learned via DHCP on Ethernet1/1
+  static_routes: []
+
+expected_behaviour:
+  - {from: VLAN10, to: VLAN20, result: allowed}
+  - {from: VLAN20, to: VLAN10, result: allowed}
+  - {from: VLAN10, to: internet, result: allowed, natted: true}
+  - {from: VLAN20, to: internet, result: allowed, natted: true}
+  - {from: VLAN30, to: internet, result: allowed, natted: true}
+  - {from: VLAN30, to: VLAN10, result: blocked}
+  - {from: VLAN30, to: VLAN20, result: blocked}
+  - {from: VLAN10, to: VLAN30, result: blocked}
+  - {from: VLAN20, to: VLAN30, result: blocked}
+  - {from: any data VLAN, to: VLAN99, result: blocked, note: no L3 path exists}
