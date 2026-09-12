@@ -37,6 +37,64 @@ def _present(*patterns: str, ok: str, bad: str):
     return check
 
 
+def _time_source(config: str, facts: dict) -> tuple[bool, str, tuple[str, ...]]:
+    """An NTP or SNTP time source, in any vendor's syntax.
+
+    Cisco and Arista put the server on one line; Juniper uses `set system ntp`.
+    FortiOS and FortiSwitch nest it -- `config system ntp` around a
+    `config ntpserver` block whose entries carry `set server <ip>` -- which a
+    line search cannot see. Found against the same FortiSwitch 108F, whose NTP
+    was configured yet reported missing, the twin of the syslog gap.
+    """
+    line_hits = match_any(
+        config,
+        r"^\s*ntp server", r"^\s*set system ntp", r"^\s*sntp server",
+        r"^\s*ntp\b.*server",
+    )
+    if line_hits:
+        return True, "An NTP or SNTP server is configured.", line_hits[:3]
+    block = re.search(r"config ntpserver\b.*?\bset server\s+\"?\d+\.\d+\.\d+\.\d+",
+                      config, re.IGNORECASE | re.DOTALL)
+    if block:
+        server = re.search(r'set server\s+"?(\d+\.\d+\.\d+\.\d+)',
+                           block.group(0), re.IGNORECASE)
+        return True, "An NTP or SNTP server is configured.", (
+            f'set server {server.group(1)}' if server else "ntp server configured",)
+    return False, "No time source found; log timestamps cannot be correlated.", ()
+
+
+def _remote_logging(config: str, facts: dict) -> tuple[bool, str, tuple[str, ...]]:
+    """A remote syslog destination, in any vendor's syntax.
+
+    Cisco, Juniper and Arista state it on one line, so a line search finds
+    them. FortiOS and FortiSwitch spell it as a stanza -- `config log syslogd
+    setting` carrying both `set status enable` and `set server <ip>` -- which a
+    line-by-line search cannot see. A disabled syslogd block still prints in
+    show full-configuration, so the enable and the server are checked together;
+    the header alone means nothing. Found against a FortiSwitch 108F whose
+    syslog was configured yet reported missing.
+    """
+    line_hits = match_any(
+        config,
+        r"^\s*logging (host|server)", r"^\s*logging \d+\.\d+\.\d+\.\d+",
+        r"^\s*set system syslog", r"^\s*syslog\b",
+    )
+    if line_hits:
+        return True, "A remote log destination is configured.", line_hits[:3]
+    for block in re.finditer(r"config log syslogd\w* setting\b.*?\n\s*end",
+                             config, re.IGNORECASE | re.DOTALL):
+        text = block.group(0)
+        server = re.search(r'^\s*set server\s+"?(\d+\.\d+\.\d+\.\d+)',
+                           text, re.IGNORECASE | re.MULTILINE)
+        enabled = re.search(r"^\s*set status enable\b", text,
+                            re.IGNORECASE | re.MULTILINE)
+        if server and enabled:
+            return True, "A remote log destination is configured.", (server.group(0).strip(),)
+    return (False,
+            "No remote syslog destination; local logs are lost on reboot or compromise.",
+            ())
+
+
 def _weak_snmp(config: str, facts: dict) -> tuple[bool, str, tuple[str, ...]]:
     """Flag well-known default community strings in any vendor syntax."""
     weak = re.compile(
@@ -191,23 +249,13 @@ BUILTIN = Ruleset(
         Rule(
             id="NA-101", title="A time source is configured",
             severity="medium",
-            check=_present(
-                r"^\s*ntp server", r"^\s*set system ntp", r"^\s*sntp server",
-                r"set ntpserver", r"^\s*ntp\b.*server",
-                ok="An NTP or SNTP server is configured.",
-                bad="No time source found; log timestamps cannot be correlated.",
-            ),
+            check=_time_source,
             remediation="Configure at least two NTP servers.",
         ),
         Rule(
             id="NA-102", title="Logs are sent off the device",
             severity="high",
-            check=_present(
-                r"^\s*logging (host|server)", r"^\s*logging \d+\.\d+\.\d+\.\d+",
-                r"set system syslog", r"^\s*syslog\b", r"set syslogd",
-                ok="A remote log destination is configured.",
-                bad="No remote syslog destination; local logs are lost on reboot or compromise.",
-            ),
+            check=_remote_logging,
             remediation="Send logs to a collector that the device itself cannot rewrite.",
         ),
     ),
