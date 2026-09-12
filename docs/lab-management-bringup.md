@@ -128,7 +128,7 @@ Then:
 ```
 > configure network hostname ftd-edge-01
 > configure network ipv4 manual 10.10.99.10 255.255.255.0 data-interfaces
-> configure network dns servers 1.1.1.1,9.9.9.9
+> configure network dns servers 8.8.8.8
 > show network
 ```
 
@@ -153,13 +153,13 @@ gateway unset: management stays reachable locally, it just will not license.
 ### Data side
 
 Ethernet1/2 is already a switch port in VLAN1 on the 1010, and VLAN1 is the
-inside interface, so the link to the Aruba comes up with no configuration.
-Renumber the inside interface to `10.10.10.1/24` when you get to the data plane.
+inside interface, so the link to the Aruba comes up with no configuration. That
+is enough to confirm the cable while management is being built.
 
-Keep the data path on VLAN 1 on both sides for now. Introducing a separate data
-VLAN means creating a VLAN interface on the 1010 and reassigning the switch
-port, which is data-plane work and not worth doing while management is still
-coming up.
+Leave it on VLAN 1 for now. The data plane replaces it entirely — VLAN1 is
+deleted and Ethernet1/2 becomes an 802.1Q trunk carrying VLANs 10, 20 and 30.
+See [lab-data-plane.md](lab-data-plane.md). Doing that work now, before
+Management1/1 is proven, means deleting the interface you are connected through.
 
 FDM is at `https://10.10.99.10`. First login requires completing the setup
 wizard and accepting the EULA.
