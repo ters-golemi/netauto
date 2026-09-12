@@ -46,6 +46,7 @@ FGT_60F = (
 def test_fortiswitch_status_is_parsed():
     f = _driver()._parse_facts(FSW_108F)
     assert f["model"] == "FortiSwitch-108F"
+    assert f["vendor"] == "Fortinet"
     assert f["os_version"] == "7.2.7"
     assert f["build"] == "0479"
     assert f["serial"] == "S108FNTV24010522"
@@ -56,6 +57,7 @@ def test_fortiswitch_status_is_parsed():
 def test_fortigate_shares_the_parser():
     f = _driver()._parse_facts(FGT_60F)
     assert f["model"] == "FortiGate-60F"
+    assert f["vendor"] == "Fortinet"
     assert f["os_version"] == "7.2.4"
     assert f["build"] == "1396"
     assert f["serial"] == "FGT60FTK21099999"

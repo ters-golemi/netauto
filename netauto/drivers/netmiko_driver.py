@@ -195,6 +195,11 @@ class FortinetCliDriver(NetmikoDriver):
                 # "<model> v<os>,build<n>,<date> (<branch>)"
                 head, _, tail = value.partition(" ")
                 facts["model"] = head
+                # Every model this driver meets -- FortiSwitch, FortiGate,
+                # FortiAP -- is Fortinet. get system status has no Vendor line,
+                # so derive it from the model rather than leave the column blank.
+                if head.lower().startswith("forti"):
+                    facts["vendor"] = "Fortinet"
                 for token in tail.split(","):
                     token = token.strip()
                     if token.startswith("v") and token[1:2].isdigit():
