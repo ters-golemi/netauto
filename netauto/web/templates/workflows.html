@@ -54,8 +54,20 @@
       <form method="post" action="/workflows/{{ wf.id }}/start" class="inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input name="tag" placeholder="optional tag filter" autocomplete="off">
+        {% if wf.kind == 'software-upgrade' %}
+        <input name="image" placeholder="firmware image (optional)" autocomplete="off" size="22">
+        <input name="server" placeholder="tftp/ftp server IP (optional)" autocomplete="off" size="18">
+        {% endif %}
         <button type="submit" class="primary">Run workflow</button>
       </form>
+      {% if wf.kind == 'software-upgrade' %}
+      <p class="note">Recommended target:
+         {% if wf.upgrade_target %}<strong>{{ wf.upgrade_target.version }}</strong> —
+            {{ wf.upgrade_target.note }}{% else %}none defined for this platform.{% endif %}
+         Leave image/server blank to produce the runbook only. Supplying both
+         <em>and</em> enabling <code>allow_writes</code> arms the install, which
+         reboots the device.</p>
+      {% endif %}
     {% else %}
       <p class="note">No {{ entry.platform }} devices in the inventory, so there
          is nothing to run this against.</p>

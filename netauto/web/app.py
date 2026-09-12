@@ -539,7 +539,9 @@ def create_app(users: UserStore | None = None) -> FastAPI:
 
     @app.post("/workflows/{workflow_id}/start")
     def workflow_start(request: Request, workflow_id: str,
-                       csrf_token: str = Form(""), tag: str = Form("")):
+                       csrf_token: str = Form(""), tag: str = Form(""),
+                       image: str = Form(""), server: str = Form(""),
+                       stage_only: str = Form("")):
         if not current_user(request):
             return login_redirect()
         if not csrf_ok(request, csrf_token):
@@ -561,9 +563,16 @@ def create_app(users: UserStore | None = None) -> FastAPI:
                 + (f" tagged {tag!r}." if tag else ".")
                 + " A workflow with nothing to run against would report a "
                   "clean result, which would be a lie."))
-        log(request, "workflow", spec_.id, f"{len(targets)} devices")
+        params = {}
+        if spec_.kind == workflow_spec.SOFTWARE_UPGRADE:
+            params = {"image": image.strip(), "server": server.strip(),
+                      "stage_only": bool(stage_only)}
+        armed = "armed" if (params.get("image") and params.get("server")
+                            and settings.allow_writes) else "read-only"
+        log(request, "workflow", spec_.id, f"{len(targets)} devices ({armed})")
         run = workflow_service.start(spec_, inventory, settings, targets,
-                                     current_user(request) or "anonymous")
+                                     current_user(request) or "anonymous",
+                                     params=params)
         return RedirectResponse(f"/workflows/runs/{run.id}",
                                 status_code=HTTP_303_SEE_OTHER)
 

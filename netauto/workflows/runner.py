@@ -421,7 +421,8 @@ class WorkflowService:
 
     def start(self, spec: WorkflowSpec, inventory: Inventory, settings: Settings,
               devices: list[Device], user: str,
-              spawn: Callable[[Callable[[], None]], None] | None = None) -> Run:
+              spawn: Callable[[Callable[[], None]], None] | None = None,
+              params: dict[str, Any] | None = None) -> Run:
         run = Run(
             id=uuid.uuid4().hex[:12],
             workflow_id=spec.id,
@@ -431,6 +432,7 @@ class WorkflowService:
             user=user,
             targets=[d.name for d in devices],
             steps=[StepState(s.key, s.title, s.detail) for s in spec.steps],
+            params=params or {},
         )
         self.store.add(run)
 

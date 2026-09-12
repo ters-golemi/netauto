@@ -54,6 +54,19 @@
     <table class="data grid">
       <thead><tr><th>Rule</th><th>Severity</th><th>Status</th><th>Recommendation</th></tr></thead>
       <tbody>
+      {% if r.runbook %}
+      <table class="data kv">
+        <tbody>
+          <tr><td class="k">Current version</td><td>{{ r.current_version or '—' }}</td></tr>
+          <tr><td class="k">Target version</td><td>{{ r.target_version or '—' }}</td></tr>
+          <tr><td class="k">Upgrade</td><td>
+            <span class="status {{ 'fail' if r.upgrade_action in ('installed','staged') else 'skip' }}">{{ r.upgrade_action or '—' }}</span>
+            {{ r.upgrade_message }}</td></tr>
+        </tbody>
+      </table>
+      <h3 style="margin-top:14px">Runbook</h3>
+      <pre class="output">{{ r.runbook }}</pre>
+      {% endif %}
       {% for f in r.findings %}
         <tr class="{{ 'row-fail' if f.status == 'fail' }}">
           <td><code>{{ f.rule_id }}</code> {{ f.title }}</td>

@@ -9,16 +9,23 @@ from __future__ import annotations
 
 #: Every POST route the GUI may expose, and why it is not a device write.
 #:
-#: netauto has no commit path: no route, POST or otherwise, changes a device.
-#: These POST because they change something on the *server* -- a session, a
-#: run -- and so must be CSRF-protected and non-idempotent. Adding a path here
-#: is the deliberate act; the guard is what makes it deliberate.
+#: netauto has exactly one device-write path -- the Software Upgrade workflow's
+#: firmware install, gated three ways and off by default -- reached through the
+#: workflow-start route below. Every other route here changes only *server*
+#: state (a session, a run), not a device. All POST because they are
+#: non-idempotent and CSRF-protected; adding a path is the deliberate act, and
+#: the guard is what makes it deliberate.
 ALLOWED_POST_ROUTES: dict[str, str] = {
     "/login": "Creates a session.",
     "/logout": "Destroys a session.",
     "/workflows/{workflow_id}/start": (
-        "Starts a read-only workflow run. It opens sessions and reads; every "
-        "command it can send is checked against assert_read_only first."
+        "Starts a workflow run. The configuration-check and documentation "
+        "workflows only read, and every show command is checked against "
+        "assert_read_only first. The Software Upgrade workflow can write -- a "
+        "firmware install -- but only past three gates (allow_writes, the "
+        "upgrade capability, and confirmation by device name); off by default "
+        "it produces a runbook and touches nothing. The route changes server "
+        "state (a run) either way, which is why it POSTs."
     ),
     "/workflows/runs/{run_id}/cancel": (
         "Sets a cancel flag on a run in memory. Touches no device."
