@@ -6,10 +6,18 @@ change that erodes that is the one kind of change that cannot be accepted.
 
 ## The line that does not move
 
-There is no commit path. `Driver.apply_config` raises `WriteDisabled`, no
-driver overrides it, and `allow_writes` in `config.yaml` gates nothing today.
-A pull request that adds one — however well guarded, however opt-in — is out of
-scope for this project rather than a patch that needs more work.
+There is no configuration commit path. `Driver.apply_config` raises
+`WriteDisabled` and no driver overrides it. A pull request that adds one — a way
+to push arbitrary config — however well guarded, is out of scope.
+
+netauto does have exactly one device write: firmware upgrade, added deliberately
+for driving real upgrades. It is the model for how any future write, if one is
+ever justified, must look — never routed through the command guard, and gated
+independently by `allow_writes` (off by default), a driver capability, and
+confirmation by device name (`Driver.upgrade_firmware`). A write that cannot
+clear that bar does not belong here. The read guard itself — `assert_read_only`
+— is not negotiable: a "write" that widens it so a command slips through is the
+one change that will always be refused.
 
 Everything else is open, including the parts below that are deliberately hard
 to change. Hard to change means "argue for it in the commit message", not "no".

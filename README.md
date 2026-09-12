@@ -1,14 +1,16 @@
 # netauto
 
 [![tests](https://github.com/ters-golemi/netauto/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/ters-golemi/netauto/actions/workflows/tests.yml)
-![read-only](https://img.shields.io/badge/devices-read--only-brightgreen)
+![read-only](https://img.shields.io/badge/devices-read--only%20by%20default-brightgreen)
 ![MCP](https://img.shields.io/badge/interface-MCP%20%2B%20web%20GUI-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 
 Multi-vendor network automation, exposed to agents over MCP. **Read-only by
-design**: it reads device state, audits configuration, and diffs proposed
-changes. It has no commit path.
+default**: it reads device state, audits configuration, and diffs proposed
+changes, with no path to commit configuration. Its one device write is firmware
+upgrade — a single, deliberately gated operation, off unless `allow_writes` is
+enabled.
 
 Covers Cisco (IOS, IOS-XE, NX-OS, IOS-XR), Juniper Junos, Arista EOS,
 HPE Aruba (AOS-CX, AOS-Switch, Central), Cisco Meraki and Fortinet FortiOS.
@@ -39,9 +41,15 @@ Claude Code sessions rooted at `~/Work`. To run it by hand:
 
 Four independent layers, because one is not enough:
 
-1. **No commit path exists.** `Driver.apply_config` raises `WriteDisabled` and
-   no driver overrides it. `allow_writes` in `config.yaml` gates future write
-   support; today it gates nothing, which is the point.
+1. **One write, gated three ways; no config commit path.** netauto reads,
+   except for a single deliberate write — firmware upgrade. `Driver.apply_config`
+   still raises `WriteDisabled` and no driver overrides it, so there is no path
+   to commit arbitrary configuration. The firmware install is separate: it never
+   goes through the command guard, and fires only past three independent gates —
+   `allow_writes` enabled in `config.yaml` (off by default), the driver
+   declaring the `upgrade` capability, and the caller confirming with the device
+   name. Off by default, netauto is read-only; the Software Upgrade workflow then
+   produces a runbook and touches nothing.
 2. **Command allowlist.** `net_run_show` accepts only commands matching a
    per-vendor read allowlist, rejects a deny-list of state-changing verbs, and
    refuses command chaining (`;`, `&&`, `|`, newlines, `$(...)`, backticks).
@@ -172,12 +180,15 @@ cross the wire in clear text. For anything beyond a trusted management VLAN,
 put it behind a reverse proxy with TLS and set `https_only=True` on the session
 middleware in `netauto/web/app.py`.
 
-**Still read-only.** A test asserts the only POST routes in the whole
-application are `/login` and `/logout`; every device route is a GET that reads.
+**The write is gated and enumerated.** A test pins every POST route the app
+exposes to a justified allowlist in `tests/conftest.py`; the only one that can
+reach a device is the workflow-start route, and only the Software Upgrade
+workflow writes through it — past `allow_writes`, the upgrade capability and a
+device-name confirmation. Every other device route is a GET that reads.
 
 ## Workflows
 
-Two multi-step pipelines, one pair per supported platform -- 24 in all, under
+Three multi-step pipelines per supported platform -- 36 in all, under
 the **Workflows** tab. They are per-platform because the useful part is the
 show-command set, and that does not generalise.
 
@@ -197,9 +208,17 @@ evidence from the config, a recommendation, and the guide it comes from.
 neighbours and writes an editable Word document: inventory, findings, and a
 topology diagram embedded as a picture.
 
+**Software Upgrade** is the one workflow that can write. It snapshots the device
+(running version and a configuration backup), checks the version against a
+recommended target and the upgrade path, and produces a copy-pasteable runbook.
+The firmware install happens only when armed — `allow_writes` on, an image and
+server supplied — and otherwise the runbook is the whole output. This is the
+single exception to read-only, gated as the safety model describes.
+
 ```
 Configuration check:   connect -> config + show output -> compare -> report
 Documentation maker:   ... the above ... -> neighbours -> assemble -> .docx
+Software upgrade:      connect -> snapshot -> verify path -> [install] -> runbook
 ```
 
 Runs happen in the background: start one, watch the steps, come back to it.

@@ -2,9 +2,11 @@
 
 inventory_path: inventory/devices.yaml
 
-# The safety switch. No driver in this toolkit implements a commit path, so
-# turning this on changes nothing today; it exists so that any future write
-# support is opt-in rather than default.
+# The safety switch. netauto has one device write -- firmware upgrade (the
+# Software Upgrade workflow) -- and it is off unless this is true. Even then it
+# needs the driver's upgrade capability and per-device confirmation, and it does
+# NOT enable any configuration commit: there is no such path. Leave false unless
+# you are deliberately running an upgrade armed.
 allow_writes: false
 
 connect_timeout: 30
