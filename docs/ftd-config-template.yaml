@@ -97,31 +97,32 @@ nat:
   # Dynamic PAT to the outside interface address, one rule per data VLAN.
   # Every rule names outside-zone as destination, so inter-VLAN traffic
   # matches none of them and is routed untranslated.
-  - name: pat-users
-    type: manual
-    source_zone: users-zone
-    destination_zone: outside-zone
-    original_source: net-users
-    translated_source: interface       # outside interface address
-    translation: dynamic_pat
+  inbound: []                        # nothing is published to the internet
 
-  - name: pat-servers
-    type: manual
-    source_zone: servers-zone
-    destination_zone: outside-zone
-    original_source: net-servers
-    translated_source: interface
-    translation: dynamic_pat
+  outbound:
+    - name: pat-users
+      type: manual
+      source_zone: users-zone
+      destination_zone: outside-zone
+      original_source: net-users
+      translated_source: interface       # outside interface address
+      translation: dynamic_pat
 
-  - name: pat-wifi
-    type: manual
-    source_zone: wifi-zone
-    destination_zone: outside-zone
-    original_source: net-wifi
-    translated_source: interface
-    translation: dynamic_pat
+    - name: pat-servers
+      type: manual
+      source_zone: servers-zone
+      destination_zone: outside-zone
+      original_source: net-servers
+      translated_source: interface
+      translation: dynamic_pat
 
-  inbound: []                          # nothing is published to the internet
+    - name: pat-wifi
+      type: manual
+      source_zone: wifi-zone
+      destination_zone: outside-zone
+      original_source: net-wifi
+      translated_source: interface
+      translation: dynamic_pat
 
 access_policy:
   default_action: BLOCK
