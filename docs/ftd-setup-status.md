@@ -1,9 +1,11 @@
 # Cisco Firepower 1010 (FTD) — Setup Status
 
-Progress record for the NetAuto lab firewall, as configured over the console so
-far. This is the **actual state**, not the intended design; the target
-configuration is `docs/ftd-config-template.yaml`, and the build order is
-`docs/lab-management-bringup.md` → `docs/lab-data-plane.md`.
+Progress record for the NetAuto lab firewall. This is the **actual state**, not
+the intended design; the target configuration is
+`docs/ftd-config-template.yaml`, and the build order is
+`docs/lab-management-bringup.md` → `docs/lab-data-plane.md`. The management plane
+was built over the console; the **data plane is now built and deployed via the
+FDM REST API** — see below.
 
 Companion to the lab design docs, recording how far the FTD build has
 actually got. Device serial and UUID are omitted; addresses are the lab's
@@ -40,10 +42,16 @@ so none of this was automated — every step was manual at the CLI.
    - IPv4 configured, IPv6 left at DHCP (harmless; not used).
    - **Manage the device locally? → yes** — FDM on-box management, not FMC.
    - Firewall mode came up **routed**.
-4. **Management plane** (the only part the FTD CLI can configure — see below):
+4. **Management plane** (the part the FTD CLI configures):
    - `configure network hostname ftd-edge-01`
    - `configure network ipv4 manual 10.10.99.10 255.255.255.0 data-interfaces`
    - `configure network dns servers 8.8.8.8`
+5. **FDM bootstrap** — the NetAuto host was cabled to the FTD **MGMT port** on
+   `10.10.99.20/24`, making `https://10.10.99.10` reach FDM. FDM initial setup
+   (EULA + provisioning) was finalised via the API, unblocking config.
+6. **Data plane, built and deployed via the FDM REST API** — the whole of
+   `ftd-config-template.yaml`: interfaces, VLAN SVIs, the trunk, security zones,
+   NAT, the access policy and DHCP. Deployed successfully; 0 pending changes.
 
 ### Management interface (`show network`)
 
@@ -63,48 +71,71 @@ so none of this was automated — every step was manual at the CLI.
 
 | Interface | Address | Method | Status | Role |
 | --- | --- | --- | --- | --- |
-| Ethernet1/1 | unassigned | DHCP | **down/down** | outside / WAN — cabled to modem, link not up |
-| Ethernet1/8 | unassigned | — | **up/up** | trunk to FortiSwitch 108F port1 |
-| Vlan1 | 192.168.95.1 | manual | up | factory-default inside (to be replaced) |
-| Ethernet1/2–1/7 | unassigned | — | down | unused / default |
-| Management1/1 | — | — | up | dedicated OOB management port |
+| Ethernet1/1 | unassigned | DHCP | down/down | outside / WAN — cabled to modem, link not up |
+| Ethernet1/8 | trunk | — | up | 802.1Q trunk (native VLAN1, tagged 10/20/30) to FortiSwitch port1 |
+| Vlan10 | 10.10.10.1/24 | manual | up | users, users-zone |
+| Vlan20 | 10.10.20.1/24 | manual | up | servers, servers-zone |
+| Vlan30 | 10.10.30.1/24 | manual | up | wifi, wifi-zone |
+| Vlan1 | 192.168.95.1 | manual | up | native VLAN of the trunk; carries nothing |
+| Ethernet1/2–1/7 | — | — | disabled | unused |
+| Management1/1 | 10.10.99.10 | manual | up | dedicated OOB management (FDM) |
 
 ---
 
-## What remains — the data plane (FDM-only)
+## Data plane — built and deployed (FDM REST API)
 
-The FTD CLI configures the management plane and runs `show` commands. **It does
-not configure interfaces, VLANs, NAT, or access rules** — there is no
-`configure terminal` to paste. All of the following is done in the **FDM GUI**
-or via the **FDM REST API**, and none of it is built yet. Target per
-`docs/ftd-config-template.yaml`:
+The FTD CLI configures only the management plane; interfaces, VLANs, NAT and
+access rules are FDM-only. These were scripted against `/api/fdm/latest` and
+**deployed** — the running config now holds all of `ftd-config-template.yaml`:
 
 - **Interfaces:** Ethernet1/1 → outside (DHCP, default route); Ethernet1/8 →
-  802.1Q trunk carrying VLANs 10/20/30; delete the default Vlan1 inside.
+  802.1Q trunk, native VLAN1, tagged 10/20/30; Ethernet1/2–1/7 disabled.
 - **VLAN SVIs:** VLAN10 `10.10.10.1/24` (users), VLAN20 `10.10.20.1/24`
   (servers), VLAN30 `10.10.30.1/24` (wifi) — one security zone each.
-- **NAT:** three dynamic PAT rules (users/servers/wifi → outside).
-- **Access policy:** default block, 7 rules (wifi isolation both ways,
-  users↔servers, and per-VLAN internet).
-- **DHCP servers:** VLAN10 and VLAN30 pools.
-- **Management access:** FDM reachable in-band on VLAN10 (10.10.10.1) from the
-  NetAuto host 10.10.10.20/32.
+- **NAT:** three dynamic PAT rules (users/servers/wifi → outside interface).
+- **Access policy:** default block; 7 rules, blocks first — wifi isolation both
+  ways, users↔servers, and per-VLAN internet.
+- **DHCP servers:** VLAN10 `.100–.200`, VLAN30 `.100–.200`, DNS `8.8.8.8`.
+
+### Deviations from the template (all benign, FDM 7.0.1 specifics)
+
+- **Block rules use `LOG_NONE`.** FDM 7.0.1 rejects per-flow logging on a block
+  rule (`acRuleLogEndNotAllowedWithDeny`). The explicit rules and their hit
+  counters — the template's stated audit value — are unaffected.
+- **VLAN1 kept** as the trunk's native VLAN rather than deleted; functionally
+  equivalent and avoids removing an interface.
+- The factory **inside DHCP pool** (Vlan1, 192.168.95.x) was left in place;
+  inert, since VLAN1 carries nothing.
+
+### API specifics worth recording
+
+Points where the FP1010/FDM API differed from a naive reading of the template:
+a VLAN SVI needs an explicit `hardwareName` (`Vlan10`); the trunk fields are
+`trunkModeNativeVlan` (required) and `trunkModeAllowedVlans`; static DHCP DNS
+requires clearing the container's auto-config `interface`; the DHCP field is
+`enableDHCP`.
+
+## Not yet verified
+
+- **Inter-VLAN routing and client DHCP** have not been tested end to end: the
+  NetAuto host is on the isolated MGMT segment, not a data VLAN. Move it to a
+  FortiSwitch access port (VLAN 10) to confirm a `10.10.10.100–.200` lease and
+  the `10.10.10.1` gateway.
+- **Internet** waits on the WAN link (below).
 
 ---
 
-## Blockers to finishing
+## Remaining
 
-1. **FDM is not reachable over IP yet.** The data plane is FDM-only, and FDM
-   needs an IP path. The bootstrap (per `lab-management-bringup.md`) is to put
-   the NetAuto host on the management segment and reach FDM on Management1/1 —
-   i.e. **connect the host to the FTD MGMT port**, host on 10.10.99.20/24, then
-   browse `https://10.10.99.10`. In-band FDM (10.10.10.1) is unavailable until
-   the very data plane it would configure exists — the chicken-and-egg the OOB
-   management port is there to break.
-2. **WAN link is down.** Ethernet1/1 is correctly set to DHCP + default route
-   but shows down/down — the modem link is not up. No config change needed;
-   it will pull a lease once the modem's LAN port links. (Deferred by the
-   operator.)
+**WAN link is down.** Ethernet1/1 is set to DHCP + default route but shows
+down/down — the modem link is not up. No config change needed; it pulls a lease
+once the modem's LAN port links. (Deferred by the operator.) Until then the data
+plane is fully configured but has no internet egress; inter-VLAN routing does
+not depend on it.
+
+The FDM-reachability blocker is resolved: FDM was reached out-of-band on the
+MGMT port (`10.10.99.10`) and the data plane deployed through it. In-band FDM on
+VLAN10 (`10.10.10.1`) now also exists, per the template.
 
 ---
 
@@ -112,8 +143,8 @@ or via the **FDM REST API**, and none of it is built yet. Target per
 
 - The **FortiSwitch 108F** is fully configured, in netauto's inventory
   (`fsw-access-01`, 10.10.10.12), reachable over SSH, and audits clean. Its
-  uplink (port1) is already cabled to this FTD's Ethernet1/8 — the trunk link
-  is up, awaiting the FTD-side trunk/VLAN config above.
+  uplink (port1) is cabled to this FTD's Ethernet1/8, and the FTD-side trunk
+  (VLANs 10/20/30) is now deployed — both ends of the trunk are configured.
 - The FTD is **not** in netauto's inventory and has **no driver**; netauto
   cannot read or audit it. Its documentation is this file and the template.
 - Reference: `docs/ftd-config-template.yaml` (target config),
