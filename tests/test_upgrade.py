@@ -105,3 +105,83 @@ def test_a_rejected_image_raises_upgradeerror():
     d._conn = FakeConn()
     with pytest.raises(UpgradeError, match="rejected the image"):
         d.upgrade_firmware(image="bad.out", server="10.0.0.9", confirm="fsw-access-01")
+
+
+# --- the Software Upgrade workflow -------------------------------------------
+
+import contextlib
+from netauto.inventory import Inventory
+from netauto.workflows import spec as wspec
+from netauto.workflows.runner import WorkflowService
+
+
+class _FakeDriver:
+    capabilities = frozenset({"facts", "config", "command", "upgrade"})
+    def __init__(self, version="7.2.7"): self._v=version; self.upgraded=None
+    def facts(self): return {"os_version": self._v, "model": "FortiSwitch-108F"}
+    def get_config(self, kind="running"): return "config system global\nend\n"
+    def upgrade_firmware(self, **kw): self.upgraded=kw; return "restore started"
+
+
+
+
+def test_upgrade_workflow_readonly_when_writes_off(monkeypatch):
+    """allow_writes off: no push, a manual runbook, device untouched."""
+    fake=_FakeDriver("7.2.7")
+    @contextlib.contextmanager
+    def fc(d,s): yield fake
+    from netauto.workflows import runner as rmod
+    monkeypatch.setattr(rmod, "connect", fc)
+    settings=Settings(inventory_path="unused", allow_writes=False)
+    inv=Inventory([Device(name="fsw-access-01", platform="fortinet_cli", host="10.0.0.1", credentials="X")])
+    spec=wspec.get("software-upgrade--fortinet_cli")
+    run=WorkflowService().start(spec, inv, settings, list(inv), user="t", spawn=lambda j: j())
+    r=run.results[0]
+    assert r.current_version=="7.2.7" and r.target_version=="7.4.8"
+    assert r.needs_upgrade is True
+    assert r.upgrade_action=="manual"
+    assert fake.upgraded is None, "nothing may be pushed with allow_writes off"
+    assert "execute restore image" in r.runbook and "7.4.8" in r.runbook
+
+
+def test_upgrade_workflow_pushes_when_all_gates_open(monkeypatch):
+    fake=_FakeDriver("7.2.7")
+    @contextlib.contextmanager
+    def fc(d,s): yield fake
+    from netauto.workflows import runner as rmod
+    monkeypatch.setattr(rmod, "connect", fc)
+    settings=Settings(inventory_path="unused", allow_writes=True)
+    inv=Inventory([Device(name="fsw-access-01", platform="fortinet_cli", host="10.0.0.1", credentials="X")])
+    from netauto.workflows.runner import Run, StepState, execute
+    import uuid
+    spec=wspec.get("software-upgrade--fortinet_cli")
+    run=Run(id=uuid.uuid4().hex[:12], workflow_id=spec.id, kind=spec.kind,
+            platform=spec.platform, name=spec.name, user="t", targets=["fsw-access-01"],
+            steps=[StepState(s.key,s.title,s.detail) for s in spec.steps],
+            params={"image":"FSW_108F-v7.4.8.out","server":"10.10.10.20"})
+    execute(run, spec, inv, settings, list(inv))
+    r=run.results[0]
+    assert r.upgrade_action=="installed"
+    assert fake.upgraded["image"]=="FSW_108F-v7.4.8.out"
+    assert fake.upgraded["confirm"]=="fsw-access-01"     # runner confirms with the name
+
+
+def test_upgrade_workflow_skips_when_already_on_target(monkeypatch):
+    fake=_FakeDriver("7.4.8")
+    @contextlib.contextmanager
+    def fc(d,s): yield fake
+    from netauto.workflows import runner as rmod
+    monkeypatch.setattr(rmod, "connect", fc)
+    settings=Settings(inventory_path="unused", allow_writes=True)
+    inv=Inventory([Device(name="fsw-access-01", platform="fortinet_cli", host="10.0.0.1", credentials="X")])
+    from netauto.workflows.runner import Run, StepState, execute
+    import uuid
+    spec=wspec.get("software-upgrade--fortinet_cli")
+    run=Run(id=uuid.uuid4().hex[:12], workflow_id=spec.id, kind=spec.kind, platform=spec.platform,
+            name=spec.name, user="t", targets=["fsw-access-01"],
+            steps=[StepState(s.key,s.title,s.detail) for s in spec.steps],
+            params={"image":"x.out","server":"10.0.0.9"})
+    execute(run, spec, inv, settings, list(inv))
+    r=run.results[0]
+    assert r.needs_upgrade is False and r.upgrade_action=="skipped"
+    assert fake.upgraded is None

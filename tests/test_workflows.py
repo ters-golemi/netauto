@@ -21,7 +21,7 @@ from netauto.errors import DriverError, NetautoError, UnsafeCommand
 from netauto.inventory import Device, Inventory
 from netauto.workflows import runner, spec
 from netauto.workflows.document import build as build_docx
-from netauto.workflows.spec import CONFIG_CHECK, COMMANDS, DOCUMENTATION, REGISTRY
+from netauto.workflows.spec import CONFIG_CHECK, COMMANDS, DOCUMENTATION, REGISTRY, SOFTWARE_UPGRADE
 
 IOS_CONFIG = """hostname core-sw-01
 aaa new-model
@@ -121,13 +121,13 @@ def test_every_workflow_command_passes_the_read_only_guard():
     assert checked > 50, "command sets look suspiciously empty"
 
 
-def test_there_are_two_workflows_for_every_supported_platform():
+def test_there_are_three_workflows_for_every_supported_platform():
     from netauto.drivers import supported_platforms
 
     for platform in supported_platforms():
         kinds = {s.kind for s in spec.for_platform(platform)}
-        assert kinds == {CONFIG_CHECK, DOCUMENTATION}, platform
-    assert len(REGISTRY) == 2 * len(supported_platforms())
+        assert kinds == {CONFIG_CHECK, DOCUMENTATION, SOFTWARE_UPGRADE}, platform
+    assert len(REGISTRY) == 3 * len(supported_platforms())
 
 
 def test_platforms_without_a_cli_say_why_rather_than_looking_unfinished():

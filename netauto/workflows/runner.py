@@ -33,7 +33,7 @@ from netauto.drivers.base import platform_family
 from netauto.errors import NetautoError
 from netauto.inventory import Device, Inventory
 from netauto.session import connect
-from netauto.workflows.spec import CONFIG_CHECK, DOCUMENTATION, WorkflowSpec
+from netauto.workflows.spec import CONFIG_CHECK, DOCUMENTATION, SOFTWARE_UPGRADE, WorkflowSpec
 
 #: How many finished runs to keep. Each holds every target's configuration in
 #: memory, so this is a memory bound, not a tidiness preference.
@@ -67,6 +67,13 @@ class DeviceResult:
     outputs: dict[str, str] = field(default_factory=dict)
     command_errors: dict[str, str] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
+    # Software Upgrade workflow
+    current_version: str = ""
+    target_version: str = ""
+    needs_upgrade: bool | None = None
+    upgrade_action: str = ""      # installed | staged | manual | skipped
+    upgrade_message: str = ""
+    runbook: str = ""
 
     @property
     def reachable(self) -> bool:
@@ -107,6 +114,8 @@ class Run:
     finished_at: float = 0.0
     results: list[DeviceResult] = field(default_factory=list)
     topology: Any = None
+    #: Free-form workflow parameters. Software Upgrade reads image/server here.
+    params: dict[str, Any] = field(default_factory=dict)
     _cancel: threading.Event = field(default_factory=threading.Event)
 
     # -- presentation ------------------------------------------------------
@@ -193,9 +202,12 @@ def execute(run: Run, spec: WorkflowSpec, inventory: Inventory, settings: Settin
     """Run the pipeline. Called on a worker thread; never raises."""
     run.status = RUNNING
     try:
-        _collect(run, spec, devices, settings)
-        if spec.kind == DOCUMENTATION:
-            _document(run, spec, inventory, settings, devices)
+        if spec.kind == SOFTWARE_UPGRADE:
+            _upgrade(run, spec, settings, devices)
+        else:
+            _collect(run, spec, devices, settings)
+            if spec.kind == DOCUMENTATION:
+                _document(run, spec, inventory, settings, devices)
         run.status = DONE
     except Exception as exc:  # a failed run must still be viewable
         run.status = FAILED
@@ -294,6 +306,110 @@ def _document(run: Run, spec: WorkflowSpec, inventory: Inventory,
     _mark(run.step("document"), DONE,
           f"{len(run.results)} devices documented.")
     _mark(run.step("export"), DONE, "Word document ready to download.")
+
+
+def _runbook(r: "DeviceResult", target: dict, image: str, server: str, proto: str) -> str:
+    """A copy-pasteable runbook for the upgrade, whether or not netauto pushed it."""
+    img = image or "<firmware-image.out>"
+    srv = server or "<tftp-server-ip>"
+    lines = [
+        f"Upgrade runbook — {r.device}",
+        f"  Current version : {r.current_version or 'unknown'}",
+        f"  Target version  : {r.target_version or 'not defined'}",
+        f"  Path            : {target.get('note','')}",
+        "",
+        "  1. Back up the running configuration (captured by this run: "
+        f"{r.config_lines} lines).",
+        "  2. Stage the image on a TFTP/FTP server the switch can reach, then verify:",
+        f"       execute stage image {proto} {img} {srv}",
+        "       execute verify image primary        # expect: No issue found!",
+        "  3. Install (this reboots the switch):",
+        f"       execute restore image {proto} {img} {srv}",
+        "  4. After reboot, reconnect and confirm the version, then re-run the "
+        "Configuration Check to confirm the config survived.",
+        "  Rollback: boot the previous image from the boot menu, or re-restore the "
+        "prior build; the configuration backup from step 1 is the known-good point.",
+    ]
+    return "\n".join(lines)
+
+
+def _upgrade(run: Run, spec: WorkflowSpec, settings: Settings, devices: list[Device]) -> None:
+    """Software Upgrade: snapshot, verify the path, optionally push, runbook.
+
+    The only workflow that can write. The push happens in the 'upgrade' step and
+    only when every gate is open (allow_writes, the upgrade capability, an image
+    and server supplied); otherwise the step is skipped and the runbook carries
+    the manual steps. Everything else here is read-only.
+    """
+    connect_step = run.step("connect"); snap = run.step("snapshot")
+    verify = run.step("verify"); up = run.step("upgrade"); rb = run.step("runbook")
+    for st in (connect_step, snap, verify, up, rb):
+        _mark(st, RUNNING)
+
+    target = spec.upgrade_target
+    image = str(run.params.get("image", "")).strip()
+    server = str(run.params.get("server", "")).strip()
+    proto = str(run.params.get("protocol", "tftp")).strip() or "tftp"
+    stage_only = bool(run.params.get("stage_only", False))
+
+    for device in devices:
+        if run.cancelled:
+            break
+        result = DeviceResult(device=device.name, platform=device.platform)
+        run.results.append(result)
+        result.target_version = target.get("version", "")
+        try:
+            with connect(device, settings) as driver:
+                result.facts = driver.facts()
+                result.current_version = str(result.facts.get("os_version", "") or "")
+                result.config = driver.get_config("running")
+                result.needs_upgrade = (bool(result.target_version)
+                                        and result.current_version != result.target_version)
+                # the write, only past every gate
+                if not result.target_version:
+                    result.upgrade_action = "skipped"
+                    result.upgrade_message = "No recommended target for this platform."
+                elif not result.needs_upgrade:
+                    result.upgrade_action = "skipped"
+                    result.upgrade_message = f"Already on {result.current_version}."
+                elif not settings.allow_writes:
+                    result.upgrade_action = "manual"
+                    result.upgrade_message = ("allow_writes is off — install is a manual "
+                                              "step. See the runbook.")
+                elif "upgrade" not in driver.capabilities:
+                    result.upgrade_action = "manual"
+                    result.upgrade_message = "Driver has no upgrade path — manual step."
+                elif not (image and server):
+                    result.upgrade_action = "manual"
+                    result.upgrade_message = ("No image/server supplied — install is a "
+                                              "manual step. See the runbook.")
+                else:
+                    out = driver.upgrade_firmware(image=image, server=server,
+                                                  protocol=proto, stage_only=stage_only,
+                                                  confirm=device.name)
+                    result.upgrade_action = "staged" if stage_only else "installed"
+                    result.upgrade_message = out[:300]
+        except NetautoError as exc:
+            result.error = str(exc)
+            if not result.upgrade_action:
+                result.upgrade_action = "skipped"; result.upgrade_message = str(exc)
+        result.runbook = _runbook(result, target, image, server, proto)
+
+    reached = [r for r in run.results if r.reachable]
+    _mark(connect_step, DONE, f"{len(reached)} of {len(run.results)} devices answered.")
+    _mark(snap, DONE, f"{sum(r.config_lines for r in reached)} config lines backed up.")
+    need = [r for r in reached if r.needs_upgrade]
+    _mark(verify, DONE,
+          f"target {target.get('version','—')}; {len(need)} of {len(reached)} need it.")
+    did = [r for r in run.results if r.upgrade_action in ("installed", "staged")]
+    manual = [r for r in run.results if r.upgrade_action == "manual"]
+    if did:
+        _mark(up, DONE, f"{len(did)} device(s) {did[0].upgrade_action}; rebooting where installed.")
+    elif manual:
+        _mark(up, SKIPPED, "Install left as a manual step — see the runbook.")
+    else:
+        _mark(up, SKIPPED, "Nothing to upgrade.")
+    _mark(rb, DONE, "Runbook ready.")
 
 
 class WorkflowService:

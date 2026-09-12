@@ -26,10 +26,24 @@ from netauto.drivers.base import platform_family
 
 CONFIG_CHECK = "config-check"
 DOCUMENTATION = "documentation"
+SOFTWARE_UPGRADE = "software-upgrade"
 
 KIND_NAMES = {
     CONFIG_CHECK: "Device Configuration Check",
     DOCUMENTATION: "Network Documentation Maker",
+    SOFTWARE_UPGRADE: "Software Upgrade",
+}
+
+#: Recommended target firmware per platform, from vendor guidance. A platform
+#: absent here has no upgrade target defined and the workflow says so rather
+#: than guessing a version.
+UPGRADE_TARGETS: dict[str, dict[str, str]] = {
+    "fortinet_cli": {
+        "version": "7.4.8",
+        "note": "Latest mature FortiSwitchOS 7.4.x. FortiSwitchOS 7.2.x upgrades "
+                "directly to 7.4.x — no intermediate build — except on 424E/M426 "
+                "models. Read the 7.4.8 release notes and confirm the path first.",
+    },
 }
 
 
@@ -71,7 +85,27 @@ DOCUMENTATION_STEPS: tuple[Step, ...] = CONFIG_CHECK_STEPS[:4] + (
          "Writes an editable .docx with the diagram embedded."),
 )
 
-STEPS = {CONFIG_CHECK: CONFIG_CHECK_STEPS, DOCUMENTATION: DOCUMENTATION_STEPS}
+SOFTWARE_UPGRADE_STEPS: tuple[Step, ...] = (
+    Step("connect", "Connect to the device",
+         "Opens one session using credentials resolved from the environment."),
+    Step("snapshot", "Capture the pre-upgrade state",
+         "Records the running firmware version and takes a configuration "
+         "backup, so there is a known-good point to compare against and roll "
+         "back to."),
+    Step("verify", "Verify the target and upgrade path",
+         "Compares the running version against the recommended target and "
+         "confirms an upgrade is needed and supported."),
+    Step("upgrade", "Transfer and install the image",
+         "The one write netauto performs. Requires allow_writes, the driver's "
+         "upgrade capability, and confirmation; the device reboots. Without "
+         "those it is left as a manual step and the runbook says how."),
+    Step("runbook", "Produce the upgrade runbook",
+         "The version delta, the backup, the exact transfer/verify/install "
+         "steps and the rollback plan."),
+)
+
+STEPS = {CONFIG_CHECK: CONFIG_CHECK_STEPS, DOCUMENTATION: DOCUMENTATION_STEPS,
+         SOFTWARE_UPGRADE: SOFTWARE_UPGRADE_STEPS}
 
 
 # Per-platform read-only command sets.
@@ -234,6 +268,11 @@ class WorkflowSpec:
         return bool(self.commands)
 
     @property
+    def upgrade_target(self) -> dict[str, str]:
+        """Recommended firmware for this platform, or {} if none is defined."""
+        return UPGRADE_TARGETS.get(self.platform, {})
+
+    @property
     def no_cli_reason(self) -> str:
         return NO_CLI_REASON.get(self.platform, "")
 
@@ -241,7 +280,7 @@ class WorkflowSpec:
 def _build_registry() -> dict[str, WorkflowSpec]:
     out: dict[str, WorkflowSpec] = {}
     for platform in supported_platforms():
-        for kind in (CONFIG_CHECK, DOCUMENTATION):
+        for kind in (CONFIG_CHECK, DOCUMENTATION, SOFTWARE_UPGRADE):
             spec = WorkflowSpec(kind=kind, platform=platform)
             out[spec.id] = spec
     return out
