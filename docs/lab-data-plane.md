@@ -1,106 +1,101 @@
 # Lab data plane
 
-Access switch VLANs and Firepower 1010 routing, NAT and security policy.
+VLANs, trunking and firewall policy for the single-switch lab.
 
-Assumes the management plane from [lab-management-bringup.md](lab-management-bringup.md)
-is already built and reachable. That is what makes this document safe to execute:
-every step below can strand the data path without stranding the devices.
+Assumes both devices are addressed and reachable per
+[lab-management-bringup.md](lab-management-bringup.md).
 
 netauto has no commit path, so nothing here is applied by it. This is a manual
 build. What netauto does afterwards is read and audit the result.
 
 ## Addressing
 
-| VLAN | Name | Subnet | Gateway (FTD) | Client addressing |
+| VLAN | Name | Subnet | Gateway | Client addressing |
 | --- | --- | --- | --- | --- |
-| 10 | Users | 10.10.10.0/24 | 10.10.10.1 | DHCP, .100–.200 |
+| 10 | Users + management | 10.10.10.0/24 | 10.10.10.1 | DHCP .100–.200 |
 | 20 | Servers | 10.10.20.0/24 | 10.10.20.1 | Static |
-| 30 | WiFi | 10.10.30.0/24 | 10.10.30.1 | DHCP, .100–.200 |
-| 99 | Management | 10.10.99.0/24 | none (flat L2) | Static, already built |
+| 30 | WiFi | 10.10.30.0/24 | 10.10.30.1 | DHCP .100–.200 |
 
-Outside: Ethernet1/1, DHCP from the ISP.
-DNS: `8.8.8.8`, handed to clients by DHCP and used by the FTD itself.
+Outside: Ethernet1/1, DHCP from the ISP. DNS `8.8.8.8` throughout.
 
-### Why these numbers
+Static reservations on VLAN 10, all below the DHCP pool: FDM `.1`, FortiSwitch
+`.12`, access point `.13`, NetAuto host `.20`.
 
-The third octet matches the VLAN ID, which makes an address readable without a
-lookup. More usefully, the three data subnets all fall inside **10.10.0.0/18**
-(10.10.0.0 – 10.10.63.255), while management at 10.10.99.0/24 sits outside that
-block, in 10.10.64.0/18.
+There is no VLAN 40 and no VLAN 99 in the data plane. Both existed in earlier
+revisions — VLAN 40 held users while VLAN 10 was a dedicated management VLAN,
+and VLAN 99 was the out-of-band segment. Neither survives the move to in-band
+management.
 
-That separation is the point. A single object covering every data VLAN cannot
-accidentally include the management segment, in a firewall rule or in netauto's
-discovery scoping. Management was not renumbered because it is already deployed
-and is the only path to the devices.
+## Physical
 
-Room to grow inside 10.10.0.0/18: VLANs 40 through 63 map straight onto
-10.10.40.0/24 – 10.10.63.0/24 with no re-planning.
+```
+Internet ── Eth1/1 ── [ Firepower 1010 ] ── Eth1/8 ══ port1 ── [ FortiSwitch 108F ]
+                        Mgmt1/1 (unplugged)          trunk 10,20,30
+```
 
-## HPE Instant On 1930
+Single trunk. The firewall is a router-on-a-stick for three VLANs.
 
-| Port | Mode | VLAN membership | PVID |
-| --- | --- | --- | --- |
-| 1 | Trunk to Firepower | 10, 20, 30 tagged | 1 |
-| 2 | Access — Users | 10 untagged | 10 |
-| 3 | Access — Servers | 20 untagged | 20 |
-| 4 | Access — WiFi | 30 untagged | 30 |
-| 24 | Access — Management | 99 untagged | 99 |
-| 5–23 | Unused | — | — |
+## FortiSwitch 108F
 
-Create VLANs 10, 20 and 30 under *Switching → VLAN* first, then set port
-membership. Remove ports 2, 3 and 4 from VLAN 1 as you assign them.
+| Port | Mode | Native | Tagged | Connects to |
+| --- | --- | --- | --- | --- |
+| port1 | Trunk | 1 (unused) | 10, 20, 30 | FTD Ethernet1/8 |
+| port2 | Disabled | — | — | Freed when the Mgmt1/1 cable came out |
+| port3 | Access | 10 | — | NetAuto host / admin PC |
+| port4 | Trunk | 10 | 30 | Access point |
+| port5 | Access | 10 | — | Wired user |
+| port6 | Access | 20 | — | Server |
+| port7–8 | Disabled | — | — | Spare |
 
-VLAN 1 stays as the trunk's native VLAN and carries nothing. Untagged frames
-arriving on port 1 are then discarded at the firewall, which is the behaviour to
-want.
+VLAN 1 is the trunk's native VLAN and carries nothing, so untagged frames
+arriving on port1 are discarded at the firewall.
 
-**Do not touch port 24 or the VLAN 99 IP interface.** The switch has no console
-port and no CLI; that path is the only way in. If you lose it the recovery is
-the reset button and a rebuild from scratch.
+Port4 gives the AP its management address untagged on VLAN 10 and tags only the
+SSID VLAN, which is how most APs expect to be trunked. Confirm your AP's
+behaviour before cabling — some present management tagged as well.
 
-If port 4 feeds a real access point rather than a single test client, it
-probably needs to be a trunk — most APs tag their SSID VLANs rather than
-presenting one untagged. Confirm before cabling.
+Full configuration: [fsw-config-template.cfg](fsw-config-template.cfg).
 
 ## Cisco Firepower 1010
 
-All of this is FDM work. FTD's CLI configures the management plane and runs
-`show` commands; it does not configure interfaces, NAT or access rules. There is
-no CLI config to paste. See [ftd-config-template.yaml](ftd-config-template.yaml)
-for the same content in a form you can diff and version.
+FDM work. FTD's CLI configures the management plane and runs `show` commands; it
+does not configure interfaces, NAT or access rules. There is no CLI config to
+paste. Full spec: [ftd-config-template.yaml](ftd-config-template.yaml).
 
 Switch-port and trunk configuration on the 1010 needs FTD 6.5 or later. Check
 `show version` first — on an older train the hardware switch is access-mode only
-and each VLAN would need its own physical link to the Aruba.
-
-### Step 0 — delete the VLAN1 inside interface
-
-The management build left an inside interface on VLAN1. It has to go before
-VLAN10 can take 10.10.10.0/24, and its switch ports have to be freed before
-Ethernet1/2 can become a trunk.
-
-This is the step the out-of-band work paid for. You are deleting the interface
-you would previously have been managing through, and the box stays reachable on
-Management1/1 throughout.
+and each VLAN would need its own physical link.
 
 ### Interfaces
 
 | Interface | Mode | Configuration | Zone |
 | --- | --- | --- | --- |
 | Ethernet1/1 | Firewall | IPv4 DHCP, obtain default route | outside-zone |
-| Ethernet1/2 | Switch port | Trunk, allowed VLANs 10/20/30, native 1 | — |
-| Ethernet1/3–1/8 | — | Disabled | — |
+| Ethernet1/8 | Switch port | Trunk, allowed 10/20/30, native 1 | — |
+| Ethernet1/2–1/7 | — | Disabled | — |
 | VLAN10 | Routed | 10.10.10.1/24, name `users` | users-zone |
 | VLAN20 | Routed | 10.10.20.1/24, name `servers` | servers-zone |
 | VLAN30 | Routed | 10.10.30.1/24, name `wifi` | wifi-zone |
-| Management1/1 | OOB | 10.10.99.10/24 — unchanged | — |
+| Management1/1 | OOB | 10.10.99.10/24, cable out | — |
 
 One zone per VLAN. Zones are what the access rules match on, so collapsing two
 VLANs into a shared zone would silently merge their policy.
 
-### NAT
+### Management access
 
-Three dynamic PAT rules, each translating to the outside interface address:
+FDM is reached on the VLAN10 interface address, `10.10.10.1`, from
+`10.10.10.20/32` over HTTPS and SSH.
+
+This is to-the-box traffic. It is **not** evaluated by the access control policy
+below — it is configured separately under management access, and it is easy to
+believe an access rule is protecting it when nothing is.
+
+The source is a /32 deliberately. Management shares the users VLAN now, so
+permitting `10.10.10.0/24` would make every user machine an administrative
+source. That single scoping decision is what keeps this design from being
+materially weaker than the out-of-band one it replaced.
+
+### NAT
 
 | Source zone | Source network | Destination zone | Translation |
 | --- | --- | --- | --- |
@@ -108,42 +103,42 @@ Three dynamic PAT rules, each translating to the outside interface address:
 | servers-zone | 10.10.20.0/24 | outside-zone | Interface PAT |
 | wifi-zone | 10.10.30.0/24 | outside-zone | Interface PAT |
 
-Because every rule names outside-zone as the destination, inter-VLAN traffic
-does not match any of them and is routed untranslated. That is what you want —
-NAT between internal VLANs would break return paths and make the logs useless.
+Every rule names outside-zone as destination, so inter-VLAN traffic matches none
+of them and is routed untranslated. NAT between internal VLANs would break
+return paths and make the logs useless.
 
-No inbound NAT. Nothing in this design publishes a service to the internet. If
-VLAN 20 later needs to host something reachable from outside, that is a separate
-decision with its own exposure, not an extension of this rule set.
+No inbound NAT. Nothing here publishes a service to the internet.
 
 ### Access control policy
 
-Default action: **Block**. Rules evaluate top to bottom, first match wins.
+Default action: **Block**. First match wins.
 
-| # | Name | Source zone | Destination zone | Action | Log |
-| --- | --- | --- | --- | --- | --- |
-| 1 | wifi-to-internal-block | wifi-zone | users-zone, servers-zone | Block | Yes |
-| 2 | internal-to-wifi-block | users-zone, servers-zone | wifi-zone | Block | Yes |
-| 3 | users-to-servers | users-zone | servers-zone | Allow | Yes |
-| 4 | servers-to-users | servers-zone | users-zone | Allow | Yes |
-| 5 | users-to-internet | users-zone | outside-zone | Allow | Yes |
-| 6 | servers-to-internet | servers-zone | outside-zone | Allow | Yes |
-| 7 | wifi-to-internet | wifi-zone | outside-zone | Allow | Yes |
+| # | Name | Source zone | Destination zone | Action |
+| --- | --- | --- | --- | --- |
+| 1 | wifi-to-internal-block | wifi-zone | users-zone, servers-zone | Block |
+| 2 | internal-to-wifi-block | users-zone, servers-zone | wifi-zone | Block |
+| 3 | users-to-servers | users-zone | servers-zone | Allow |
+| 4 | servers-to-users | servers-zone | users-zone | Allow |
+| 5 | users-to-internet | users-zone | outside-zone | Allow |
+| 6 | servers-to-internet | servers-zone | outside-zone | Allow |
+| 7 | wifi-to-internet | wifi-zone | outside-zone | Allow |
 
-Rules 1 and 2 are redundant against the default block. Keep them anyway. They
-state the isolation as policy rather than leaving it as a side effect of the
-default action, and they are the rules you will want to see hit counters on when
-somebody asks whether guest isolation is actually working. An implicit deny
-proves nothing in an audit.
+All rules logged.
+
+Rules 1 and 2 are redundant against the default block and are kept deliberately.
+They state the isolation as policy rather than leaving it as a side effect of the
+default action, and they give an auditable hit counter — an implicit deny proves
+nothing in a report. They matter more than they used to: management lives on
+VLAN 10, so rule 1 is what keeps wireless clients away from the administrative
+segment.
 
 Rules 3 and 4 both exist because FDM rules are directional. Inspection is
-stateful, so return traffic needs no rule of its own — only a new connection
-opened from the other side does.
+stateful, so return traffic needs no rule of its own; only a connection opened
+from the other side does.
 
-WiFi isolation is bidirectional, so nothing on VLAN 10 or 20 can reach VLAN 30
-either. Casting, printing and managing an AP from a user machine will not work
-across this boundary by design. If the AP itself needs managing, give it an
-address on VLAN 99 rather than poking a hole here.
+WiFi isolation is bidirectional. One consequence worth knowing: the access point
+has to be administered from a wired VLAN 10 host, not over the wireless it
+serves.
 
 ### DHCP
 
@@ -152,58 +147,51 @@ address on VLAN 99 rather than poking a hole here.
 | VLAN10 | 10.10.10.100 – .200 | 10.10.10.1 | 8.8.8.8 |
 | VLAN30 | 10.10.30.100 – .200 | 10.10.30.1 | 8.8.8.8 |
 
-VLAN20 gets no DHCP server. Server addresses that move are their own category
-of outage.
+VLAN20 gets no DHCP server. Server addresses that move are their own category of
+outage.
 
 Handing out `8.8.8.8` rather than the interface address means clients resolve
-against Google directly. That traffic is ordinary VLAN-to-outside flow and is
-covered by rules 5, 6 and 7 — the firewall is not acting as a resolver, so there
-is no to-the-box DNS exception to reason about. It also means WiFi clients never
-need to talk to the FTD at all.
+against Google directly, so the firewall is not acting as a resolver and there is
+no to-the-box DNS exception to reason about.
 
 ## Verification
 
-Order matters: confirm the trunk before blaming the policy.
+Confirm the trunk before blaming the policy.
 
 ```bash
-# on the Aruba, from a VLAN 10 client
+# from a VLAN 10 client
 ip addr                       # expect 10.10.10.100-200
 ping 10.10.10.1               # gateway
 ping 8.8.8.8                  # internet via PAT
-ping 10.10.20.x               # server VLAN, expect success
-ping 10.10.30.x               # WiFi VLAN, expect timeout
+ping 10.10.20.x               # servers, expect success
+ping 10.10.30.x               # wifi, expect timeout
 
 # from a VLAN 30 client
 ping 10.10.30.1               # gateway
 ping 8.8.8.8                  # internet, expect success
 ping 10.10.10.x               # expect timeout
 ping 10.10.20.x               # expect timeout
+
+# management scoping — from a VLAN 10 host that is NOT 10.10.10.20
+curl -k --max-time 5 https://10.10.10.1     # expect refused or timeout
+ssh admin@10.10.10.12                       # expect refused
 ```
 
-A VLAN 30 client that can reach 8.8.8.8 but not 10.10.10.x is the whole design
-working. If everything times out including 8.8.8.8, suspect the trunk or the
-PAT rule before the access policy.
+That last pair is the one to actually run. A VLAN 30 client reaching 8.8.8.8 but
+not 10.10.10.x shows the policy works; an untrusted VLAN 10 host being refused by
+both management interfaces shows the part the policy does not cover.
 
-In FDM, the hit counters on rules 1 and 2 should be zero on a healthy network
-and non-zero the moment something misbehaves — worth watching during testing.
+If everything times out including 8.8.8.8, suspect the trunk or the PAT rule
+before the access policy.
 
-## What netauto sees
+In FDM, hit counters on rules 1 and 2 should be zero on a healthy network and
+non-zero the moment something misbehaves.
 
-The FTD still has no driver, so none of this policy is readable by the toolkit.
-The Aruba has no driver either. The value of this build for netauto testing is
-the discovery path: `net_discover_local` against each data subnet should find
-the gateway and the attached hosts.
+## Open items
 
-```bash
-net_discover_local(cidr="10.10.10.0/24", probe_ports="22,443")
-net_discover_local(cidr="10.10.20.0/24", probe_ports="22,443")
-net_discover_local(cidr="10.10.30.0/24", probe_ports="22,443")
-```
+**PoE.** The plain 108F has no PoE; the POE and FPOE variants do. If yours is
+the plain one, the access point needs an injector.
 
-That requires the NetAuto host to be directly attached to each segment, since
-`arp-scan` is only authoritative on a connected segment. From its position on
-VLAN 99 it will see nothing on the data VLANs. Either give it an interface on
-the trunk, or accept that discovery testing happens on the management segment
-only.
-
-This is worth knowing before reading an empty sweep as a bug in the tool.
+**AP management reachability.** VLAN 10 is routed and NATs to the internet, so a
+cloud-managed AP can phone home. This was not true of the previous design, where
+the management VLAN had no gateway at all.
