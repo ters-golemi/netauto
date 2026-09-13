@@ -418,6 +418,20 @@ def create_app(users: UserStore | None = None) -> FastAPI:
                     carry={"ip": ip, "platform": platform, "credentials": credentials},
                     **ctx)
 
+    @app.get("/procedures", response_class=HTMLResponse)
+    def procedures_page(request: Request):
+        """Operational procedures: firmware upgrade and config backup.
+
+        Static reference, so operators see the procedures in the app rather than
+        only on GitHub. The recommended target comes from the workflow spec so
+        the page cannot drift from what the Software Upgrade workflow uses.
+        """
+        if not current_user(request):
+            return login_redirect()
+        target = workflow_spec.UPGRADE_TARGETS.get("fortinet_cli", {})
+        return page(request, "procedures.html", upgrade_target=target,
+                    allow_writes=Settings.load().allow_writes)
+
     @app.get("/activity", response_class=HTMLResponse)
     def activity_page(request: Request):
         if not current_user(request):

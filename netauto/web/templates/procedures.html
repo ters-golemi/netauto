@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% set nav = 'procedures' %}
+{% block title %}Procedures — Netauto{% endblock %}
+{% block content %}
+<h1>Operational procedures</h1>
+<p class="note">Two procedures beyond read-only inspection: upgrading device
+   firmware and backing up configuration. Both respect netauto's stance —
+   read-only by default, with a single deliberately gated write.</p>
+
+<section class="result">
+  <h2>Firmware upgrade</h2>
+  <p>The <strong>Software Upgrade</strong> workflow is the one operation that can
+     write to a device. Off unless deliberately armed, it plans the upgrade and
+     produces a runbook, touching nothing.</p>
+
+  <h3>What it does</h3>
+  <p><code>connect → snapshot → verify path → [install] → runbook</code></p>
+  <ol class="steps plain">
+    <li><strong>Snapshot</strong> — records the running version and takes a
+        configuration backup, a known-good point to compare and roll back to.</li>
+    <li><strong>Verify</strong> — compares the running version against the
+        recommended target and confirms the upgrade is needed and supported.</li>
+    <li><strong>Install</strong> — the write. Only when armed; the device
+        reboots. Left unarmed, this step is skipped.</li>
+    <li><strong>Runbook</strong> — the version delta, the backup, the exact
+        transfer/verify/install commands, and the rollback plan.</li>
+  </ol>
+
+  <h3>The three gates</h3>
+  <p>The install fires only past all three, each off by default:</p>
+  <table class="data kv"><tbody>
+    <tr><td class="k">1. allow_writes</td><td><code>allow_writes: true</code> in
+        config.yaml — currently <strong>{{ 'on' if allow_writes else 'off' }}</strong>.
+        Gates firmware upgrade only, never a config commit.</td></tr>
+    <tr><td class="k">2. capability</td><td>the driver declares the
+        <code>upgrade</code> capability — today only <code>fortinet_cli</code>.</td></tr>
+    <tr><td class="k">3. confirmation</td><td>confirmed with the device name; the
+        workflow does this for you, so it cannot fire by accident.</td></tr>
+  </tbody></table>
+
+  {% if upgrade_target %}
+  <h3>Recommended target — FortiSwitch</h3>
+  <p><strong>FortiSwitchOS {{ upgrade_target.version }}</strong>.
+     {{ upgrade_target.note }}</p>
+  {% endif %}
+
+  <h3>Procedure</h3>
+  <ol class="steps plain">
+    <li><strong>Download</strong> the image from support.fortinet.com into
+        <code>firmware/fortiswitch/</code>.</li>
+    <li><strong>Serve it</strong> over TFTP or FTP from a server the switch can
+        reach (the NetAuto host, serving <code>firmware/fortiswitch/</code>).</li>
+    <li><strong>Plan it first</strong> — run <em>Workflows → Software Upgrade</em>
+        with image and server blank, and read the runbook it produces.</li>
+    <li><strong>Back up the config</strong> — the snapshot step captures it; see
+        below to store a sanitized copy.</li>
+    <li><strong>Arm and run</strong> — set <code>allow_writes: true</code>,
+        restart the service, and run the workflow again with the image filename
+        and server IP filled in. The switch validates and reboots into the image.</li>
+    <li><strong>Verify</strong> — after the reboot, run the <em>Configuration
+        Check</em> workflow to confirm the version and that the config survived.</li>
+  </ol>
+  <p class="note"><strong>Timing:</strong> the install reboots the switch — several
+     minutes of downtime. If the switch is your management path, pick a window
+     where that is acceptable. <strong>Rollback:</strong> boot the previous image
+     from the switch boot menu; the snapshot backup is the known-good point.</p>
+</section>
+
+<section class="result">
+  <h2>Configuration backup</h2>
+  <p>netauto collects running configuration read-only and stores a
+     <strong>sanitized</strong> copy — a snapshot and reference, not a restorable
+     backup.</p>
+  <ol class="steps plain">
+    <li>Collects the running configuration over the normal read path.</li>
+    <li><strong>Sanitizes before writing anything</strong>: password hashes, SNMP
+        communities, private keys, certificates and serial numbers are redacted
+        in memory, and the result is verified clean before it is saved.</li>
+    <li>Stores the sanitized config under <code>configs/</code>.</li>
+  </ol>
+  <table class="data grid">
+    <thead><tr><th>Kind</th><th>Where</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Sanitized snapshot</td><td><code>configs/</code> (committed)</td>
+          <td>Safe to publish; useful for diffing and review</td></tr>
+      <tr><td>Full restorable backup</td><td>Private repo or offline store</td>
+          <td>Contains secrets — never the public repo</td></tr>
+    </tbody>
+  </table>
+  <p class="note">A restorable backup with secrets intact must go somewhere
+     private. The repo <code>.gitignore</code> keeps raw <code>*.cfg</code> and
+     <code>baselines/</code> out for this reason.</p>
+</section>
+
+<p class="note">Full reference: <code>docs/procedures.md</code> in the repository.</p>
+{% endblock %}

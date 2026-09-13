@@ -47,7 +47,7 @@ def test_refuses_to_start_with_no_accounts(tmp_path):
 
 
 @pytest.mark.parametrize("path", ["/", "/devices", "/audit", "/discover",
-                                  "/activity", "/devices/anything"])
+                                  "/activity", "/procedures", "/devices/anything"])
 def test_pages_require_a_session(client, path):
     r = client.get(path, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/login"
@@ -92,6 +92,16 @@ def test_session_cookie_is_hardened(client):
     cookie = _login(client).headers.get("set-cookie", "")
     assert "httponly" in cookie.lower()
     assert "samesite=strict" in cookie.lower().replace(" ", "")
+
+
+def test_procedures_page_renders_with_the_upgrade_target(client):
+    """The in-app procedures reference shows the gates and the recommended version."""
+    _login(client)
+    body = client.get("/procedures").text
+    assert "Operational procedures" in body
+    assert "Software Upgrade" in body and "allow_writes" in body
+    assert "7.4.8" in body, "recommended target should come from the workflow spec"
+    assert "Configuration backup" in body
 
 
 def test_the_device_page_renders_for_a_logged_in_user(client):
