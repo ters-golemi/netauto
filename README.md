@@ -131,7 +131,8 @@ Pages: overview, device list, per-device facts and running config, a read-only
 command box, compliance audit by group, ARP discovery with an optional
 SSH/telnet port check, ad-hoc sessions against discovered hosts, LLDP
 topology with a
-draw.io export, Workflows, an activity log, and a Metrics tab embedding the
+draw.io export, Workflows, a Lab tab for building and auditing virtual networks
+with netlab, an activity log, and a Metrics tab embedding the
 Grafana dashboard when one is configured.
 
 ### Accounts
@@ -181,10 +182,13 @@ put it behind a reverse proxy with TLS and set `https_only=True` on the session
 middleware in `netauto/web/app.py`.
 
 **The write is gated and enumerated.** A test pins every POST route the app
-exposes to a justified allowlist in `tests/conftest.py`; the only one that can
-reach a device is the workflow-start route, and only the Software Upgrade
-workflow writes through it — past `allow_writes`, the upgrade capability and a
-device-name confirmation. Every other device route is a GET that reads.
+exposes to a justified allowlist in `tests/conftest.py`. The only one that can
+*write* to a managed device is the workflow-start route, and only the Software
+Upgrade workflow writes through it — past `allow_writes`, the upgrade capability
+and a device-name confirmation. The Lab routes POST too, but they orchestrate
+ephemeral netlab infrastructure (`/lab/up`, `/lab/down`) or read lab devices
+read-only (`/lab/audit`) — never a managed-device write. Every managed-device
+route that reads is a GET.
 
 ## Workflows
 
@@ -251,6 +255,48 @@ which is the built-in rules annotated with their sources plus the guidance that
 only makes sense once you have the show output too. The Audit page and the
 Prometheus metrics keep running `BUILTIN` unchanged, so this cannot move a
 dashboard or fire an alert.
+
+## Labs (netlab)
+
+Build a virtual network with [netlab](https://netlab.tools), then read and audit
+it with everything above. netauto inspects devices but cannot stand a network
+up to inspect; netlab builds and configures virtual topologies but does not
+audit them afterward. The **Lab** tab joins the two, so a design can be checked
+on a throwaway copy before it reaches real hardware.
+
+The loop is **build → read → audit**, and it reuses what is already here: a lab
+that is up has its nodes mapped to netauto platforms and appears as an ordinary
+inventory, so Audit, Topology and the command box work against it unchanged —
+no new drivers.
+
+- **Bring up / tear down** a topology from the page; netlab up/down run as
+  background jobs, one lab per topology at a time.
+- **Audit this lab** runs the same compliance ruleset the Audit page runs, and
+  shows the findings per device. An unreachable node is an error, not a silent
+  pass — and lab findings are kept out of the compliance metrics, because a lab
+  is not the fleet.
+
+The same loop headless, as a CI design-regression gate:
+
+```bash
+python -m netauto.lab.ci labs/spine-leaf/topology.yml --fail-on high
+# exit 0 clean · 1 findings (design regressed) · 2 could not build/audit
+```
+
+netlab is **optional and never a dependency**: it needs libvirt or containerlab
+plus device images, all host-level, so netauto never imports it — the wrapper
+runs the installed binary and, where it is absent, the page says so and the
+up/down actions refuse rather than pretend. The read-only stance is untouched:
+netlab writes only to the throwaway VMs and containers it creates and destroys,
+and netauto's connection *to* lab devices stays read-only — it audits them, it
+does not configure them.
+
+Only the platforms netauto already drives are mapped (Cisco IOS/NX-OS/IOS-XR,
+Arista EOS, Juniper Junos, and the container kinds); other netlab kinds are
+listed but skipped, with the reason. Lab devices share one credential prefix
+(`LAB` by default), so export `LAB_USERNAME` and `LAB_PASSWORD` before auditing.
+See [docs/netlab-integration.md](docs/netlab-integration.md) for the design, and
+[docs/lab-audit.ci.yml](docs/lab-audit.ci.yml) for a copyable CI workflow.
 
 ## Discovery, port scanning and ad-hoc sessions
 
@@ -483,6 +529,13 @@ per-command gap rather than a failed device, which is exactly the case that
 needs a real run to shake out. The rules themselves are tested against
 representative config snippets, not captured production configs, so their
 false-positive rate is unmeasured.
+
+The **Lab (netlab) wrapper has not been run against a real netlab install**. Its
+snapshot parser and platform mapping are tested against a captured netlab
+topology fixture, and the CLI runner against a faked binary, so the pinned
+`netlab create -o yaml:` output form and the exact command argv are the parts a
+first real run should confirm — once a lab is up, auditing it is the same driver
+code as an inventory device.
 
 ## Contributing
 
