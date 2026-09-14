@@ -1,0 +1,73 @@
+# A representative netlab transformed-topology snapshot, as produced by
+#   netlab create -o yaml:netlab.snapshot.yml
+# Trimmed to the fields netauto.lab.snapshot reads (device, ansible_host, mgmt),
+# plus a few neighbouring fields so the shape matches what netlab really emits.
+# It mixes the two ways netlab records a management address, kinds netauto can
+# and cannot drive, and one node with no address, so the parser and mapper are
+# exercised against reality rather than an idealised file.
+nodes:
+  r1:
+    name: r1
+    device: iosv
+    id: 1
+    ansible_host: 192.168.121.101
+    ansible_network_os: ios
+    mgmt:
+      ipv4: 192.168.121.101/24
+      mac: 08:4f:a9:00:00:01
+      ifname: GigabitEthernet0/0
+    loopback:
+      ipv4: 10.0.0.1/32
+  r2:
+    name: r2
+    device: eos
+    id: 2
+    ansible_host: 192.168.121.102
+    ansible_network_os: eos
+    mgmt:
+      ipv4: 192.168.121.102/24
+      mac: 08:4f:a9:00:00:02
+      ifname: Management1
+  sw1:
+    name: sw1
+    device: nxos
+    id: 3
+    # No ansible_host on this one -- the address must come from mgmt.ipv4,
+    # prefix and all, and the parser must strip it.
+    ansible_network_os: nxos
+    mgmt:
+      ipv4: 192.168.121.103/24
+      mac: 08:4f:a9:00:00:03
+      ifname: mgmt0
+  fw1:
+    name: fw1
+    device: vsrx
+    id: 4
+    ansible_host: 192.168.121.104
+    ansible_network_os: junos
+    mgmt:
+      ipv4: 192.168.121.104/24
+      mac: 08:4f:a9:00:00:04
+      ifname: fxp0
+  x1:
+    name: x1
+    device: frr
+    id: 5
+    ansible_host: 192.168.121.105
+    ansible_network_os: frr
+    mgmt:
+      ipv4: 192.168.121.105/24
+  lb1:
+    name: lb1
+    device: vyos
+    id: 6
+    ansible_host: 192.168.121.106
+    mgmt:
+      ipv4: 192.168.121.106/24
+  ghost:
+    name: ghost
+    device: iosv
+    id: 7
+    # A drivable kind, but netlab recorded no management address for it.
+    mgmt:
+      mac: 08:4f:a9:00:00:07

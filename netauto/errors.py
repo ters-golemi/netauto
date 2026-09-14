@@ -45,3 +45,13 @@ class UpgradeError(DriverError):
     on the wire -- the image was rejected, the transfer failed, the device did
     not come back.
     """
+
+
+class LabError(NetautoError):
+    """A lab-orchestration step failed.
+
+    Raised by the netlab wrapper when netlab is not installed, a lab command
+    returns non-zero, or its output cannot be parsed. Distinct from DriverError:
+    nothing here talks to a managed device -- it drives the external netlab tool
+    that builds and tears down throwaway virtual labs.
+    """

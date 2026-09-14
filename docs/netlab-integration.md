@@ -46,12 +46,18 @@ integrate by **running its CLI and parsing the files it emits**.
   (containers). Config is pushed with **Ansible**.
 - Commands: `netlab up`, `netlab down`, `netlab status`, `netlab connect`,
   `netlab exec`, `netlab inspect`.
-- Outputs we consume: a **snapshot** (`netlab.snapshot.yml`) and the generated
-  **Ansible inventory** (`hosts.yml`), which together give us each node's
-  device kind and **management IP** on the lab's management network.
+- Output we consume: the **transformed topology as YAML**. netlab's *native*
+  snapshot is a pickle (`netlab.snapshot.pickle`) — version-coupled and not
+  ours to unpickle — so instead we ask netlab to dump the same data model as
+  YAML with `netlab create -o yaml:netlab.snapshot.yml`. That gives a top-level
+  `nodes` dictionary keyed by node name, each carrying its device kind and
+  **management IP** (`ansible_host`, or `mgmt.ipv4` with a prefix).
 
-This is the whole integration seam: run `netlab up`, read the snapshot for
-`name → (kind, mgmt IP)`, map kinds to netauto platforms, build an `Inventory`.
+This is the whole integration seam: run `netlab up`, dump and read the topology
+YAML for `name → (kind, mgmt IP)`, map kinds to netauto platforms, build an
+`Inventory`. The `-o yaml:` form is the one pinned line; the parser is verified
+against captured fixtures independently, so a netlab release that changes the
+output is a contained fix.
 
 ---
 
@@ -63,7 +69,7 @@ This is the whole integration seam: run `netlab up`, read the snapshot for
   topology.yml ──▶ netlab up ──▶ running lab (mgmt network, SSH-reachable IPs)
                        │
                        ▼
-              netlab.snapshot.yml + hosts.yml
+              netlab create -o yaml  ▸  netlab.snapshot.yml
                        │
         netauto.lab: parse snapshot ──▶ platform mapping ──▶ netauto Inventory
                        │
@@ -116,23 +122,28 @@ A thin wrapper. netauto stays Python; netlab stays a subprocess.
 
 ```
 netauto/lab/
-  __init__.py     # is_available(), locate the netlab binary
-  runner.py       # up() / down() / status(): subprocess around the netlab CLI
-  snapshot.py     # parse netlab.snapshot.yml + hosts.yml
-  inventory.py    # snapshot -> list[netauto.inventory.Device]
+  __init__.py     # is_available(), and the public re-exports
+  runner.py       # up/down/status/write_snapshot/read_inventory: the netlab CLI
+  snapshot.py     # parse the topology YAML -> list[LabNode]
+  inventory.py    # LabNodes -> netauto Devices (the platform mapping)
 ```
 
-- **`runner.up(topology, provider=None)`** — shells out to `netlab up`, streams
-  status, returns when the lab is converged (or raises with netlab's error).
-  `down()` runs `netlab down`; `status()` wraps `netlab status`.
-- **`snapshot.load(dir)`** — reads the snapshot and Ansible inventory, yields
-  `LabNode(name, kind, mgmt_ip)` records. This is the parser that is pinned to
-  a tested netlab version and treated as the integration seam.
-- **`inventory.from_snapshot(nodes)`** — maps each node to a
-  `Device(name=…, platform=…, host=mgmt_ip, credentials=…)`. Unmappable kinds
-  are skipped with a warning rather than failing the whole lab.
-- Credentials come from the environment as everywhere else in netauto; netlab's
-  default lab credentials are well-known and can seed a lab credential prefix.
+- **`runner.up(topology, provider=None)`** — shells out to `netlab up` in the
+  topology's directory, returns when the lab is converged (or raises `LabError`
+  with netlab's own diagnostic). `down()` runs `netlab down`; `status()` wraps
+  `netlab status`; `write_snapshot()` runs the pinned `netlab create -o yaml:`.
+  `is_available()` probes for the binary, so a caller can offer a lab action
+  only where netlab is installed.
+- **`snapshot.load(path)`** — parses the topology YAML into
+  `LabNode(name, kind, mgmt_ip)` records. This is the parser pinned to a tested
+  netlab version and treated as the integration seam.
+- **`inventory.map_nodes(nodes)`** — returns `Mapped(devices, skipped)`: each
+  drivable node becomes a `Device(name=…, platform=…, host=mgmt_ip, tags=("lab",))`,
+  and every unmappable node is kept aside *with a reason* rather than dropped or
+  faked. `from_snapshot()` is the shortcut to just the drivable `Inventory`.
+- Credentials come from the environment as everywhere else in netauto; lab nodes
+  share one prefix (`LAB` by default), matching how netlab gives a topology one
+  set of credentials.
 
 ### Platform mapping (the labbable subset)
 
@@ -195,9 +206,10 @@ mergeable in CI:
 
 - `runner` is tested with the netlab CLI faked (a stub on `PATH` or a patched
   subprocess) — assert the argv we build and how we parse exit codes/output.
-- `snapshot` and `inventory` are tested against **captured** `netlab.snapshot.yml`
-  and `hosts.yml` fixtures — assert the `name → (platform, mgmt IP)` mapping and
-  that unmappable kinds are skipped, not fatal.
+- `snapshot` and `inventory` are tested against a **captured**
+  `netlab.snapshot.yml` fixture — assert the `name → (platform, mgmt IP)`
+  mapping, both management-IP forms, and that unmappable kinds are skipped with
+  a reason, not fatal.
 - The GUI page is tested like the others: requires a session, and renders the
   "netlab not available" state as well as a populated node list.
 - One optional, **marked** end-to-end test (`@pytest.mark.netlab`) actually runs
@@ -211,6 +223,7 @@ mergeable in CI:
 
 1. **`runner` + `snapshot` + `inventory`** — CLI wrapper and snapshot→inventory
    translation, with fixtures and unit tests. No GUI yet; usable from a REPL.
+   *(Done — `netauto/lab/`, `tests/test_lab.py`.)*
 2. **`/lab` GUI page** — bring up / tear down / node list, availability
    handling, POST-route allowlist entry.
 3. **Validation loop** — a one-click "audit this lab" that runs the existing
