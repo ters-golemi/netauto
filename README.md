@@ -284,6 +284,14 @@ management IPs, a Tear down and an Audit this lab button](docs/lab.png)
 `mixed-vendor` (four vendors, needs VM images). The node addresses above are
 synthetic; the platform mapping and the page are real.*
 
+![The Lab audit results for the mixed-vendor lab: four tiles, then each node —
+juniper_junos, arista_eos, cisco_nxos, cisco_ios — with its rules, severities
+and verdicts, failures highlighted and the config line that decided each](docs/lab-audit.png)
+
+*Auditing the `mixed-vendor` lab: the same rules and finding layout the Audit
+page produces for managed devices, here across four vendors at once. Synthetic
+findings; the rules, severities and page are real.*
+
 The same loop headless, as a CI design-regression gate:
 
 ```bash
