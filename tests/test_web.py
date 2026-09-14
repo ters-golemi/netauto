@@ -532,3 +532,31 @@ def test_lab_audit_page_rejects_a_non_audit_job(lab_ready, client):
     client.app.state.lab.store.add(
         LabJob(id="u1", action=UP, topology="t", user="alice", status=DONE))
     assert "No such lab audit" in client.get("/lab/audits/u1").text
+
+
+def test_discover_topologies_finds_the_committed_sample():
+    """The repo ships labs/spine-leaf/topology.yml; the Lab page must see it."""
+    from pathlib import Path
+
+    from netauto.web.app import discover_topologies
+
+    found = {str(p) for p in discover_topologies(Path("labs"))}
+    assert "labs/spine-leaf/topology.yml" in found
+
+
+def test_discover_topologies_ignores_netlab_generated_files(tmp_path):
+    """A lab that is up must not litter the page with its generated YAML."""
+    from netauto.web.app import discover_topologies
+
+    lab = tmp_path / "spine-leaf"
+    (lab / "host_vars").mkdir(parents=True)
+    (lab / "group_vars").mkdir()
+    (lab / "topology.yml").write_text("name: t\nnodes:\n  a:\n")
+    for junk in ("clab.yml", "hosts.yml", "netlab.snapshot.yml",
+                 "netlab-devices.yml"):
+        (lab / junk).write_text("x: 1\n")
+    (lab / "host_vars" / "a.yml").write_text("k: v\n")
+    (lab / "group_vars" / "all.yml").write_text("k: v\n")
+
+    found = [p.name for p in discover_topologies(tmp_path)]
+    assert found == ["topology.yml"], found

@@ -24,3 +24,16 @@ deploy/grafana/data/
 firmware/**/*.out
 firmware/**/*.zip
 firmware/**/*.bin
+
+# netlab writes these beside a topology when a lab is brought up. Keep the
+# topologies (and labs/README.md) tracked; keep the generated artifacts out.
+labs/**/netlab.snapshot.*
+labs/**/netlab-devices.yml
+labs/**/clab.yml
+labs/**/clab-*/
+labs/**/.clab/
+labs/**/Vagrantfile
+labs/**/hosts.yml
+labs/**/ansible.cfg
+labs/**/host_vars/
+labs/**/group_vars/

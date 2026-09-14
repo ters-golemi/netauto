@@ -81,7 +81,14 @@ def grafana_health(base_url: str, timeout: float = 2.0) -> tuple[bool, str]:
 
 
 #: netlab writes these beside a topology; they are not topologies themselves.
-_LAB_GENERATED = {lab_service_mod.runner.SNAPSHOT_FILE, "netlab-devices.yml"}
+#: Filenames netlab writes beside a topology when a lab comes up. They are not
+#: topologies, so discovery skips them even when nothing sits next to them.
+_LAB_GENERATED = {lab_service_mod.runner.SNAPSHOT_FILE, "netlab.snapshot.pickle",
+                  "netlab-devices.yml", "clab.yml", "hosts.yml"}
+
+#: Directories netlab fills with per-node and per-group YAML. Anything under one
+#: is generated, never a topology.
+_LAB_GENERATED_DIRS = {"host_vars", "group_vars"}
 
 
 def discover_topologies(labs_dir: Path) -> list[Path]:
@@ -89,8 +96,9 @@ def discover_topologies(labs_dir: Path) -> list[Path]:
 
     Two shapes are recognised: a directory holding a ``topology.yml`` (netlab's
     default), and a bare ``*.yml`` / ``*.yaml`` file. netlab's own generated
-    files are excluded so a lab that is up does not list its snapshot as if it
-    were another lab to start.
+    files -- the snapshot, the containerlab config, and the Ansible host_vars /
+    group_vars a running lab fills in -- are excluded, so bringing a lab up does
+    not litter the page with files that are not topologies.
     """
     if not labs_dir.exists():
         return []
@@ -98,8 +106,10 @@ def discover_topologies(labs_dir: Path) -> list[Path]:
     for path in sorted(labs_dir.rglob("*.y*ml")):
         if path.name in _LAB_GENERATED:
             continue
+        if _LAB_GENERATED_DIRS.intersection(p.name for p in path.parents):
+            continue
         # A directory's canonical topology is topology.yml; if one exists,
-        # ignore other yaml beside it (host_vars, group_vars) to avoid noise.
+        # ignore other yaml beside it to avoid listing generated files.
         if path.name == "topology.yml":
             found[path] = None
         elif not (path.parent / "topology.yml").exists() and path.suffix in (".yml", ".yaml"):

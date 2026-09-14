@@ -1,0 +1,38 @@
+# A small leaf-spine fabric, for the netauto Lab page and the CI recipe.
+#
+# Four Arista EOS nodes -- two spines, two leaves -- with an OSPF underlay.
+# Arista EOS runs as a native container (cEOS), so containerlab brings this up
+# without any VM images: the lightest lab to actually run, and netauto maps the
+# `eos` device kind onto its `arista_eos` driver, so once it is up the Lab page
+# can audit every node.
+#
+# Bring it up:   netlab up  (from this directory), or the Lab page's "Bring up"
+# Audit it:      the Lab page's "Audit this lab", or
+#                python -m netauto.lab.ci labs/spine-leaf/topology.yml --fail-on high
+#
+# You need containerlab and a cEOS image imported as netlab expects. See
+# https://netlab.tools and docs/netlab-integration.md.
+
+name: spine-leaf
+
+provider: clab
+defaults:
+  device: eos
+
+# An OSPF underlay is enough to make the fabric converge and give the audit
+# something real to read. Swap in `bgp` (with an AS) for an EVPN-style design.
+module: [ospf]
+
+nodes:
+  spine1:
+  spine2:
+  leaf1:
+  leaf2:
+
+# Every leaf to every spine -- the point of a leaf-spine, and why a port-channel
+# or a dropped adjacency shows up in a topology or an audit.
+links:
+  - spine1-leaf1
+  - spine1-leaf2
+  - spine2-leaf1
+  - spine2-leaf2
