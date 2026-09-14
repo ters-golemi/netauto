@@ -276,6 +276,14 @@ no new drivers.
   pass — and lab findings are kept out of the compliance metrics, because a lab
   is not the fleet.
 
+![The Lab page with the two sample topologies: mixed-vendor down with a Bring up
+button, and spine-leaf up with its four nodes mapped to arista_eos and their
+management IPs, a Tear down and an Audit this lab button](docs/lab.png)
+
+*The repo ships two topologies — `spine-leaf` (all containers, run it today) and
+`mixed-vendor` (four vendors, needs VM images). The node addresses above are
+synthetic; the platform mapping and the page are real.*
+
 The same loop headless, as a CI design-regression gate:
 
 ```bash
