@@ -352,3 +352,118 @@ def test_audit_action_runs_the_ruleset_and_stores_results(monkeypatch):
     assert job.status == lab_service.DONE
     assert job.results == fake.results and job.summary == fake.summary
     assert "1 device audited" in job.output
+
+
+# --- the CI gate ------------------------------------------------------------
+
+import io  # noqa: E402
+
+from netauto.lab import ci  # noqa: E402
+
+
+def _audit(results, skipped=None):
+    return lab_audit.LabAudit(
+        topology="t", results=results,
+        summary=lab_audit.summarize(results), skipped=skipped or [])
+
+
+def _finding(rule, sev, status="fail"):
+    return {"rule_id": rule, "title": rule, "severity": sev, "status": status}
+
+
+def test_gate_fails_on_an_unreachable_node():
+    audit = _audit([{"device": "r1", "error": "no route", "findings": []}])
+    assert ci.gate(audit, "any") == ["r1: unreachable (no route)"]
+
+
+def test_gate_fails_on_a_finding_at_or_above_the_threshold():
+    audit = _audit([{"device": "r1", "findings": [_finding("SSH1", "high")]}])
+    assert ci.gate(audit, "high")  # high >= high
+    assert ci.gate(audit, "critical") == []  # high is below the critical floor
+
+
+def test_gate_any_fails_on_a_finding_of_any_severity():
+    audit = _audit([{"device": "r1", "findings": [_finding("X", "low")]}])
+    assert ci.gate(audit, "any")
+    assert ci.gate(audit, "high") == []  # low is below high
+
+
+def test_gate_ignores_passing_findings():
+    audit = _audit([{"device": "r1",
+                     "findings": [_finding("OK", "critical", status="pass")]}])
+    assert ci.gate(audit, "any") == []
+
+
+@pytest.fixture
+def ci_stubs(monkeypatch):
+    """Fake netlab up/down; the test supplies the audit result."""
+    calls = []
+    monkeypatch.setattr(ci.runner, "up",
+                        lambda t, provider=None: calls.append(("up", t, provider)))
+    monkeypatch.setattr(ci.runner, "down",
+                        lambda t, cleanup=False: calls.append(("down", t, cleanup)))
+    return calls
+
+
+def _run(topology="t", **kw):
+    from netauto.config import Settings
+    out = io.StringIO()
+    code = ci.run(topology, Settings(inventory_path="x"), out=out, **kw)
+    return code, out.getvalue()
+
+
+def test_run_returns_ok_and_tears_down_on_a_clean_audit(ci_stubs, monkeypatch):
+    monkeypatch.setattr(ci, "audit_lab", lambda t, s, refresh=False: _audit(
+        [{"device": "r1", "findings": [_finding("OK", "high", status="pass")]}]))
+    code, text = _run(fail_on="high")
+    assert code == ci.OK and "PASS" in text
+    assert ("down", "t", True) in ci_stubs
+
+
+def test_run_returns_findings_and_still_tears_down_on_a_dirty_audit(ci_stubs, monkeypatch):
+    monkeypatch.setattr(ci, "audit_lab", lambda t, s, refresh=False: _audit(
+        [{"device": "r1", "findings": [_finding("SSH1", "critical")]}]))
+    code, text = _run(fail_on="high")
+    assert code == ci.FINDINGS and "FAIL" in text and "SSH1" in text
+    assert ("down", "t", True) in ci_stubs  # torn down even on failure
+
+
+def test_run_keep_leaves_the_lab_up(ci_stubs, monkeypatch):
+    monkeypatch.setattr(ci, "audit_lab", lambda t, s, refresh=False: _audit([]))
+    code, text = _run(keep=True)
+    assert code == ci.OK
+    assert not any(c[0] == "down" for c in ci_stubs)
+    assert "--keep" in text
+
+
+def test_run_returns_infra_when_the_lab_will_not_come_up(monkeypatch):
+    def boom(t, provider=None):
+        raise LabError("libvirt is not running")
+    monkeypatch.setattr(ci.runner, "up", boom)
+    downs = []
+    monkeypatch.setattr(ci.runner, "down", lambda t, cleanup=False: downs.append(t))
+    code, text = _run()
+    assert code == ci.INFRA and "did not come up" in text
+    assert downs == []  # nothing was brought up, so nothing is torn down
+
+
+def test_run_returns_infra_but_still_tears_down_when_audit_errors(ci_stubs, monkeypatch):
+    def boom(t, s, refresh=False):
+        raise LabError("snapshot could not be written")
+    monkeypatch.setattr(ci, "audit_lab", boom)
+    code, text = _run()
+    assert code == ci.INFRA
+    assert ("down", "t", True) in ci_stubs  # finally still ran
+
+
+def test_main_maps_arguments_to_run(monkeypatch):
+    captured = {}
+    def fake_run(topology, settings=None, **kw):
+        captured.update(topology=topology, **kw)
+        return ci.OK
+    monkeypatch.setattr(ci, "run", fake_run)
+    rc = ci.main(["labs/demo/topology.yml", "--fail-on", "any", "--provider", "clab"])
+    assert rc == ci.OK
+    assert captured["topology"] == "labs/demo/topology.yml"
+    assert captured["fail_on"] == "any" and captured["provider"] == "clab"
+    assert captured["keep"] is False

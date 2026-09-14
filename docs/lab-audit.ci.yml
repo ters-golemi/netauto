@@ -1,0 +1,59 @@
+# Lab design-regression gate -- COPY THIS to .github/workflows/ to enable it.
+#
+# It is kept here, not in .github/workflows/, on purpose: it needs a runner with
+# netlab and a provider installed, which the default GitHub-hosted runners do
+# not have, so leaving it active would fail every build. Copy it into your own
+# repository's .github/workflows/ once you have such a runner.
+#
+# What it does: on every push and PR it builds the netlab topology, audits it
+# with netauto's compliance ruleset, and fails the check if the design regressed
+# -- a failing finding at or above --fail-on, or a node that did not come up.
+# The lab is torn down afterwards, pass or fail.
+#
+# Requirements:
+#   * A self-hosted runner labelled 'netlab' with netlab + containerlab (or
+#     libvirt) and the device images your topology uses. containerlab is the
+#     lighter choice for CI; native-container kinds (Arista cEOS, SR Linux, FRR,
+#     VyOS) need no VM images.
+#   * LAB_USERNAME / LAB_PASSWORD in the repository secrets -- the credentials
+#     netauto uses to read the lab devices (the 'LAB' prefix netauto.lab maps
+#     onto every lab node).
+#   * The topology path below pointed at your lab.
+
+name: lab-audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One lab at a time on the runner; a superseded run has nothing to prove.
+  group: lab-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    # The self-hosted runner that actually has netlab + a provider.
+    runs-on: [self-hosted, netlab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install netauto
+        run: pip install -e .
+
+      - name: Build, audit, assert clean, tear down
+        env:
+          LAB_USERNAME: ${{ secrets.LAB_USERNAME }}
+          LAB_PASSWORD: ${{ secrets.LAB_PASSWORD }}
+        run: |
+          python -m netauto.lab.ci labs/spine-leaf/topology.yml \
+            --provider clab \
+            --fail-on high
+
+      # A failed audit exits 1 and fails the step; exit 2 means the lab could
+      # not be built or audited at all. Both stop the merge, which is the point.

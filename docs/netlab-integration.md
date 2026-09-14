@@ -241,6 +241,38 @@ mergeable in CI:
    findings are kept out of the compliance metrics.)*
 4. *(Later, optional)* a CI recipe: up → audit → assert clean → down, as a
    template others can copy for design regression testing.
+   *(Done — `netauto/lab/ci.py` and the workflow template `docs/lab-audit.ci.yml`;
+   see the CI recipe below.)*
+
+## CI recipe
+
+The audit loop, made into a gate. `netauto.lab.ci` builds a lab, audits it, and
+exits non-zero if the design regressed:
+
+```
+python -m netauto.lab.ci labs/spine-leaf/topology.yml --fail-on high
+```
+
+It brings the lab up, runs the same compliance ruleset the Audit page runs,
+tears the lab back down (pass or fail, unless `--keep`), and turns the result
+into an exit code a CI job reads:
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | clean — nothing failed at or above `--fail-on` |
+| `1` | findings — the audit failed the gate; the design regressed |
+| `2` | infrastructure — the lab could not be built or audited at all |
+
+Two things fail the gate: a node that could not be audited (an unreachable
+device is not a passing device), and a failing finding at or above `--fail-on`
+(`any`, or a severity floor; default `high`). Advisory findings below the line
+are reported but do not fail the build.
+
+`docs/lab-audit.ci.yml` is a **copyable GitHub Actions workflow** — kept out of
+`.github/workflows/` deliberately, because it needs a self-hosted runner with
+netlab and a provider, which the default hosted runners lack. Copy it into a
+repository that has such a runner, point it at a topology, and set
+`LAB_USERNAME` / `LAB_PASSWORD` in secrets.
 
 ## Open questions
 
