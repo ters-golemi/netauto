@@ -123,6 +123,16 @@ button.primary {
 button.primary:hover { filter:brightness(1.08); }
 .inline button.primary { margin-top:0; }
 
+/* Tearing a lab down is destructive but ordinary; a muted red keeps it clearly
+   different from the primary action without shouting. */
+button.danger {
+  font:inherit; font-weight:600; cursor:pointer; margin-top:18px;
+  background:var(--bad); color:#FFFFFF;
+  border:none; border-radius:6px; padding:10px 18px;
+}
+button.danger:hover { filter:brightness(1.08); }
+.inline button.danger { margin-top:0; }
+
 /* -- tiles ------------------------------------------------------------- */
 
 .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; }

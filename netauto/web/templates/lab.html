@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% set nav = 'lab' %}
+{% block title %}Lab — Netauto{% endblock %}
+{% block content %}
+<h1>Lab</h1>
+<p class="note">Build virtual topologies with <a href="https://netlab.tools">netlab</a>
+   and read them like real gear: a lab that is up appears below with its nodes
+   mapped to netauto platforms, ready for Audit and Topology. netlab writes only
+   to the throwaway VMs and containers it creates and destroys — netauto's
+   connection to lab devices stays read-only.</p>
+
+{% if available %}
+  <p class="note">netlab found at <code>{{ netlab_path }}</code>.</p>
+{% else %}
+  <div class="alert block">
+    <p><strong>netlab is not installed on this host.</strong> The labs below can
+       be listed, but not brought up or down from here. Install it with
+       <code>pip install networklab</code> and a provider (libvirt or
+       containerlab); see <code>docs/netlab-integration.md</code>.</p>
+  </div>
+{% endif %}
+
+{% if jobs %}
+<section class="result">
+  <h2>Recent lab jobs</h2>
+  <div class="tablewrap">
+  <table class="data grid">
+    <thead><tr><th>Started</th><th>Action</th><th>Topology</th><th>By</th>
+               <th>Status</th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr data-job="{{ j.id }}">
+        <td>{{ j.created_label }}</td>
+        <td><code>{{ j.action }}</code></td>
+        <td>{{ j.topology }}</td>
+        <td>{{ j.user }}</td>
+        <td><span class="status {{ 'fail' if j.status == 'failed' else j.status }}" data-job-status>{{ j.status }}</span>
+            {% if j.error %}<div class="note">{{ j.error }}</div>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Jobs are held in memory only; restarting the service discards
+     them.</p>
+</section>
+{% endif %}
+
+{% if not labs %}
+<section class="result">
+  <p class="note">No topologies found under <code>{{ labs_dir }}</code>. Put a
+     netlab topology there — a <code>topology.yml</code> in its own directory,
+     or a <code>*.yml</code> file — and it will appear here.</p>
+</section>
+{% else %}
+{% for lab in labs %}
+<section class="result">
+  <div class="workflow">
+    <h3>{{ lab.name }}
+      {% if lab.up %}<span class="status done">up</span>
+      {% else %}<span class="status skip">down</span>{% endif %}
+    </h3>
+    <p class="note"><code>{{ lab.id }}</code></p>
+
+    {% if available %}
+    <form method="post" action="/lab/{{ 'down' if lab.up else 'up' }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="topology" value="{{ lab.id }}">
+      {% if lab.up %}
+        <button type="submit" class="danger">Tear down</button>
+      {% else %}
+        <button type="submit" class="primary">Bring up</button>
+      {% endif %}
+    </form>
+    {% endif %}
+
+    {% if lab.up %}
+      {% if lab.devices %}
+      <div class="tablewrap">
+      <table class="data grid">
+        <thead><tr><th>Node</th><th>Platform</th><th>Management IP</th></tr></thead>
+        <tbody>
+        {% for d in lab.devices %}
+          <tr>
+            <td><a href="/connect?ip={{ d.host }}&platform={{ d.platform }}">{{ d.name }}</a></td>
+            <td><code>{{ d.platform }}</code></td>
+            <td><code>{{ d.host }}</code></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <p class="note">{{ lab.devices | length }} node{{ '' if lab.devices | length == 1 else 's' }}
+         mapped to a netauto driver. Audit and Topology work against them; the
+         connection is read-only.</p>
+      {% else %}
+      <p class="note">This lab is up but no node maps to a netauto driver.</p>
+      {% endif %}
+
+      {% if lab.skipped %}
+      <p class="note">Skipped:
+        {% for node, reason in lab.skipped %}
+          <code>{{ node.name }}</code> ({{ reason }}){{ '; ' if not loop.last }}
+        {% endfor %}
+      </p>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>
+{% endfor %}
+{% endif %}
+
+<script>
+(function () {
+  // Reload once when a running job finishes, so the node lists refresh.
+  var running = [].slice.call(document.querySelectorAll('[data-job]'))
+    .filter(function (row) {
+      var s = row.querySelector('[data-job-status]');
+      return s && (s.textContent === 'running' || s.textContent === 'pending');
+    });
+  if (!running.length) return;
+  var poll = setInterval(function () {
+    Promise.all(running.map(function (row) {
+      var id = row.getAttribute('data-job');
+      return fetch('/lab/jobs/' + id + '/status', {credentials: 'same-origin'})
+        .then(function (r) { return r.ok ? r.json() : null; });
+    })).then(function (results) {
+      var anyRunning = results.some(function (d) { return d && d.running; });
+      if (!anyRunning) {
+        clearInterval(poll);
+        window.location.reload();
+      }
+    }).catch(function () { /* a dropped poll is not worth an alert */ });
+  }, 3000);
+})();
+</script>
+{% endblock %}

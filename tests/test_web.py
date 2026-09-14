@@ -47,7 +47,8 @@ def test_refuses_to_start_with_no_accounts(tmp_path):
 
 
 @pytest.mark.parametrize("path", ["/", "/devices", "/audit", "/discover",
-                                  "/activity", "/procedures", "/devices/anything"])
+                                  "/activity", "/procedures", "/lab",
+                                  "/devices/anything"])
 def test_pages_require_a_session(client, path):
     r = client.get(path, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/login"
@@ -384,3 +385,93 @@ def test_the_discover_page_offers_a_connection(connectable):
 def test_ad_hoc_sessions_add_no_write_route(client):
     """The guarantee in the footer is unchanged by any of this."""
     assert_no_write_routes(client.app)
+
+
+def _csrf_from(html):
+    return html.split('name="csrf_token" value="')[1].split('"')[0]
+
+
+@pytest.fixture
+def lab_ready(client, monkeypatch):
+    """A logged-in client with netlab 'available' and one discoverable lab.
+
+    Everything netlab is faked: no binary runs, no hypervisor is touched. The
+    lab is 'down' (no snapshot) unless a test overrides lab_nodes_for.
+    """
+    from pathlib import Path
+
+    from netauto.config import Settings
+    from netauto.web import app as appmod
+
+    topo = Path("/labs/demo/topology.yml")
+    fake = Settings(inventory_path="unused", labs_dir=Path("/labs"))
+    monkeypatch.setattr(appmod.Settings, "load", lambda *a, **k: fake)
+    monkeypatch.setattr(appmod, "discover_topologies", lambda d: [topo])
+    monkeypatch.setattr(appmod.lab_runner, "is_available", lambda: True)
+    monkeypatch.setattr(appmod.lab_runner, "netlab_path", lambda: "/usr/bin/netlab")
+    monkeypatch.setattr(appmod, "lab_nodes_for", lambda p: None)
+    _login(client)
+    return {"appmod": appmod, "monkeypatch": monkeypatch,
+            "topo": topo, "id": "demo/topology.yml"}
+
+
+def test_lab_page_says_netlab_is_absent_when_it_is(client, monkeypatch):
+    from netauto.web import app as appmod
+    monkeypatch.setattr(appmod.lab_runner, "is_available", lambda: False)
+    _login(client)
+    body = client.get("/lab").text
+    assert "Lab" in body and "netlab is not installed" in body
+
+
+def test_lab_page_lists_a_topology_and_its_mapped_nodes(lab_ready, client):
+    from netauto.inventory import Device
+    from netauto.lab.inventory import Mapped
+    from netauto.lab.snapshot import LabNode
+
+    mapped = Mapped(
+        devices=[Device(name="r1", platform="cisco_ios", host="192.168.121.101",
+                        credentials="LAB", tags=("lab",))],
+        skipped=[(LabNode("x1", "frr", "192.168.121.105"),
+                  "no netauto driver for netlab kind 'frr'")],
+    )
+    lab_ready["monkeypatch"].setattr(lab_ready["appmod"], "lab_nodes_for",
+                                     lambda p: mapped)
+    body = client.get("/lab").text
+    assert "demo" in body and "r1" in body and "cisco_ios" in body
+    assert "192.168.121.101" in body
+    assert "x1" in body and "no netauto driver" in body  # skipped, shown honestly
+
+
+def test_lab_up_starts_a_job_for_a_known_topology(lab_ready, client):
+    started = []
+    lab_ready["monkeypatch"].setattr(
+        client.app.state.lab, "start",
+        lambda action, topology, user: started.append((action, topology, user)))
+    token = _csrf_from(client.get("/lab").text)
+    r = client.post("/lab/up", data={"topology": lab_ready["id"],
+                                      "csrf_token": token},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/lab"
+    assert started == [("up", "/labs/demo/topology.yml", "alice")]
+
+
+def test_lab_up_rejects_an_unknown_topology(lab_ready, client):
+    token = _csrf_from(client.get("/lab").text)
+    r = client.post("/lab/up", data={"topology": "../../etc/passwd",
+                                     "csrf_token": token})
+    assert "No such lab topology" in r.text
+
+
+def test_lab_up_is_refused_when_netlab_is_absent(lab_ready, client):
+    token = _csrf_from(client.get("/lab").text)
+    lab_ready["monkeypatch"].setattr(lab_ready["appmod"].lab_runner,
+                                     "is_available", lambda: False)
+    r = client.post("/lab/up", data={"topology": lab_ready["id"],
+                                     "csrf_token": token})
+    assert "netlab is not installed" in r.text
+
+
+def test_lab_up_requires_a_valid_csrf_token(lab_ready, client):
+    r = client.post("/lab/up", data={"topology": lab_ready["id"],
+                                     "csrf_token": "wrong"})
+    assert "Invalid form token" in r.text

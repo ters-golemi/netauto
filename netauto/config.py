@@ -28,6 +28,7 @@ class Settings:
     connect_timeout: int = 30
     command_timeout: int = 60
     max_concurrency: int = 8
+    labs_dir: Path = Path("labs")
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -48,14 +49,19 @@ class Settings:
         if not inventory_path.is_absolute():
             inventory_path = root / inventory_path
 
+        labs_dir = Path(data.get("labs_dir", "labs"))
+        if not labs_dir.is_absolute():
+            labs_dir = root / labs_dir
+
         known = {"inventory_path", "allow_writes", "connect_timeout",
-                 "command_timeout", "max_concurrency"}
+                 "command_timeout", "max_concurrency", "labs_dir"}
         return cls(
             inventory_path=inventory_path,
             allow_writes=bool(data.get("allow_writes", False)),
             connect_timeout=int(data.get("connect_timeout", 30)),
             command_timeout=int(data.get("command_timeout", 60)),
             max_concurrency=int(data.get("max_concurrency", 8)),
+            labs_dir=labs_dir,
             extra={k: v for k, v in data.items() if k not in known},
         )
 

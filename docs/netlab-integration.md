@@ -226,6 +226,10 @@ mergeable in CI:
    *(Done — `netauto/lab/`, `tests/test_lab.py`.)*
 2. **`/lab` GUI page** — bring up / tear down / node list, availability
    handling, POST-route allowlist entry.
+   *(Done — the `/lab` routes in `web/app.py`, `web/templates/lab.html`,
+   `netauto/lab/service.py`, and the `labs_dir` setting. Topologies are
+   discovered under `labs_dir`; netlab up/down run as background jobs the page
+   polls; where netlab is absent the page says so and the routes refuse.)*
 3. **Validation loop** — a one-click "audit this lab" that runs the existing
    compliance checks against the lab inventory and shows the findings, i.e. the
    "test the design" payoff.

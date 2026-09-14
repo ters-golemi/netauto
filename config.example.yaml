@@ -12,3 +12,9 @@ allow_writes: false
 connect_timeout: 30
 command_timeout: 60
 max_concurrency: 8
+
+# Where the Lab page looks for netlab topologies to build. A topology is a
+# directory holding a topology.yml, or a bare *.yml file, under here. Optional;
+# defaults to labs/. netlab itself is optional -- the Lab page explains how to
+# install it where it is absent. See docs/netlab-integration.md.
+labs_dir: labs

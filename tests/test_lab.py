@@ -211,3 +211,81 @@ def test_inventory_without_refresh_parses_an_existing_snapshot(fake_netlab, tmp_
     mapped = runner.read_inventory(tmp_path / "topology.yml", refresh=False)
     assert {d.name for d in mapped.devices} == {"r1", "r2", "sw1", "fw1"}
     assert fake_netlab["calls"] == []  # no netlab invocation when not refreshing
+
+
+# --- the background lab service ---------------------------------------------
+
+from netauto.lab import service as lab_service  # noqa: E402
+
+
+def _inline(job):
+    """A spawn that runs the job body synchronously, for deterministic tests."""
+    job()
+
+
+def test_up_runs_netlab_up_then_writes_the_snapshot(monkeypatch):
+    calls = []
+    monkeypatch.setattr(runner, "up", lambda t: calls.append(("up", t)) or "brought up")
+    monkeypatch.setattr(runner, "write_snapshot",
+                        lambda t: calls.append(("snapshot", t)))
+    svc = lab_service.LabService()
+    job = svc.start(lab_service.UP, "labs/demo/topology.yml", "alice", spawn=_inline)
+    assert job.status == lab_service.DONE
+    assert job.output == "brought up"
+    assert calls == [("up", "labs/demo/topology.yml"),
+                     ("snapshot", "labs/demo/topology.yml")]
+
+
+def test_a_snapshot_failure_after_up_is_noted_not_fatal(monkeypatch):
+    monkeypatch.setattr(runner, "up", lambda t: "up ok")
+    def boom(_):
+        raise LabError("no netlab to dump")
+    monkeypatch.setattr(runner, "write_snapshot", boom)
+    svc = lab_service.LabService()
+    job = svc.start(lab_service.UP, "topology.yml", "alice", spawn=_inline)
+    assert job.status == lab_service.DONE  # the lab is up; the dump merely failed
+    assert "snapshot not written" in job.output
+
+
+def test_down_runs_netlab_down_with_cleanup(monkeypatch):
+    calls = []
+    monkeypatch.setattr(runner, "down",
+                        lambda t, cleanup=False: calls.append((t, cleanup)) or "torn down")
+    svc = lab_service.LabService()
+    job = svc.start(lab_service.DOWN, "topology.yml", "bob", spawn=_inline)
+    assert job.status == lab_service.DONE and job.output == "torn down"
+    assert calls == [("topology.yml", True)]
+
+
+def test_a_failed_netlab_command_marks_the_job_failed(monkeypatch):
+    def boom(_):
+        raise LabError("libvirt is not running")
+    monkeypatch.setattr(runner, "up", boom)
+    svc = lab_service.LabService()
+    job = svc.start(lab_service.UP, "topology.yml", "alice", spawn=_inline)
+    assert job.status == lab_service.FAILED
+    assert "libvirt is not running" in job.error
+
+
+def test_running_for_guards_one_lab_per_topology():
+    store = lab_service.LabJobStore()
+    job = lab_service.LabJob(id="1", action=lab_service.UP,
+                             topology="labs/demo/topology.yml", user="alice",
+                             status=lab_service.RUNNING)
+    store.add(job)
+    # The route always hands running_for the same discovered path; a trailing
+    # slash normalises, a different topology does not match.
+    assert store.running_for("labs/demo/topology.yml") is job
+    assert store.running_for("labs/demo/topology.yml/") is job
+    assert store.running_for("labs/other/topology.yml") is None
+
+
+def test_the_store_keeps_newest_first_and_evicts_finished():
+    store = lab_service.LabJobStore(max_jobs=2)
+    for i in range(3):
+        store.add(lab_service.LabJob(id=str(i), action=lab_service.UP,
+                                     topology=f"t{i}", user="a",
+                                     status=lab_service.DONE,
+                                     created_at=float(i)))
+    ids = [j.id for j in store.list()]
+    assert ids == ["2", "1"]  # newest first, oldest finished job evicted

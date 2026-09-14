@@ -30,6 +30,17 @@ ALLOWED_POST_ROUTES: dict[str, str] = {
     "/workflows/runs/{run_id}/cancel": (
         "Sets a cancel flag on a run in memory. Touches no device."
     ),
+    "/lab/up": (
+        "Brings a virtual netlab lab up. Orchestrates ephemeral infrastructure "
+        "-- throwaway VMs and containers netlab creates and destroys -- through "
+        "the external netlab tool, gated on netlab being installed. It does NOT "
+        "write to any managed device; netauto's connection to lab devices is "
+        "read-only. POSTs because it starts a background job (server state)."
+    ),
+    "/lab/down": (
+        "Tears a netlab lab back down. Same category as /lab/up: it destroys "
+        "ephemeral lab infrastructure, never a managed device."
+    ),
 }
 
 

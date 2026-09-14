@@ -32,6 +32,8 @@ from netauto.drivers import supported_platforms
 from netauto.workflows import runner as workflows
 from netauto.workflows import spec as workflow_spec
 from netauto.workflows.document import build as build_document
+from netauto.lab import runner as lab_runner
+from netauto.lab import service as lab_service_mod
 from netauto.drivers.base import platform_family
 from netauto.errors import NetautoError
 from netauto.session import connect, load_context
@@ -78,6 +80,49 @@ def grafana_health(base_url: str, timeout: float = 2.0) -> tuple[bool, str]:
         return False, str(exc)
 
 
+#: netlab writes these beside a topology; they are not topologies themselves.
+_LAB_GENERATED = {lab_service_mod.runner.SNAPSHOT_FILE, "netlab-devices.yml"}
+
+
+def discover_topologies(labs_dir: Path) -> list[Path]:
+    """Every netlab topology under ``labs_dir``, sorted, deduplicated.
+
+    Two shapes are recognised: a directory holding a ``topology.yml`` (netlab's
+    default), and a bare ``*.yml`` / ``*.yaml`` file. netlab's own generated
+    files are excluded so a lab that is up does not list its snapshot as if it
+    were another lab to start.
+    """
+    if not labs_dir.exists():
+        return []
+    found: dict[Path, None] = {}
+    for path in sorted(labs_dir.rglob("*.y*ml")):
+        if path.name in _LAB_GENERATED:
+            continue
+        # A directory's canonical topology is topology.yml; if one exists,
+        # ignore other yaml beside it (host_vars, group_vars) to avoid noise.
+        if path.name == "topology.yml":
+            found[path] = None
+        elif not (path.parent / "topology.yml").exists() and path.suffix in (".yml", ".yaml"):
+            found[path] = None
+    return list(found)
+
+
+def lab_nodes_for(topology: Path):
+    """The mapped inventory of a lab, if its snapshot is on disk, else None.
+
+    Reads an existing ``netlab.snapshot.yml`` without invoking netlab, so the
+    page can list a running lab's nodes even where netlab is not installed on
+    the box serving the GUI. A lab that is not up simply has no snapshot.
+    """
+    snapshot = topology.parent / lab_service_mod.runner.SNAPSHOT_FILE
+    if not snapshot.exists():
+        return None
+    try:
+        return lab_runner.read_inventory(topology, refresh=False)
+    except NetautoError:
+        return None
+
+
 def create_app(users: UserStore | None = None) -> FastAPI:
     store = users or UserStore()
     if not store.list():
@@ -115,6 +160,10 @@ def create_app(users: UserStore | None = None) -> FastAPI:
     # not written to disk.
     workflow_service = workflows.WorkflowService()
     app.state.workflows = workflow_service
+    # Lab jobs (netlab up/down) live here too. They orchestrate throwaway
+    # infrastructure, never a managed device -- see netauto/lab/service.py.
+    lab_service = lab_service_mod.LabService()
+    app.state.lab = lab_service
     # Addresses this process has actually seen on the wire. An ad-hoc
     # connection may target nothing else, so this is a safety boundary rather
     # than a cache -- see netauto/adhoc.py for what it is defending against.
@@ -656,6 +705,96 @@ def create_app(users: UserStore | None = None) -> FastAPI:
             log(request, "workflow-cancel", run.workflow_id, run_id)
         return RedirectResponse(f"/workflows/runs/{run_id}",
                                 status_code=HTTP_303_SEE_OTHER)
+
+    # -- lab (netlab) ----------------------------------------------------
+    #
+    # Building and tearing down virtual labs. These routes orchestrate
+    # ephemeral infrastructure through the external netlab tool; they do NOT
+    # write to any managed device, and netauto's read-only stance is untouched.
+    # netlab is optional -- where it is absent the page explains how to get it
+    # and the up/down routes refuse rather than pretend.
+
+    def _topology_choices(settings: Settings) -> dict[str, Path]:
+        """Discovered topologies keyed by the id a form submits (relative path).
+
+        The key is what the page offers and the POST echoes back; resolving a
+        submission through this map is what stops a form from naming an
+        arbitrary path for netlab to run against.
+        """
+        return {
+            str(path.relative_to(settings.labs_dir)): path
+            for path in discover_topologies(settings.labs_dir)
+        }
+
+    @app.get("/lab", response_class=HTMLResponse)
+    def lab_page(request: Request):
+        if not current_user(request):
+            return login_redirect()
+        settings = Settings.load()
+        choices = _topology_choices(settings)
+        labs = []
+        for tid, path in choices.items():
+            mapped = lab_nodes_for(path)
+            labs.append({
+                "id": tid,
+                "name": path.parent.name if path.name == "topology.yml" else path.stem,
+                "up": mapped is not None,
+                "devices": mapped.devices if mapped else [],
+                "skipped": mapped.skipped if mapped else [],
+            })
+        return page(request, "lab.html",
+                    available=lab_runner.is_available(),
+                    netlab_path=lab_runner.netlab_path(),
+                    labs_dir=str(settings.labs_dir),
+                    labs=labs,
+                    jobs=lab_service.store.list()[:10])
+
+    @app.post("/lab/up")
+    def lab_up(request: Request, topology: str = Form(""),
+               csrf_token: str = Form("")):
+        return _lab_action(request, lab_service_mod.UP, topology, csrf_token)
+
+    @app.post("/lab/down")
+    def lab_down(request: Request, topology: str = Form(""),
+                 csrf_token: str = Form("")):
+        return _lab_action(request, lab_service_mod.DOWN, topology, csrf_token)
+
+    def _lab_action(request: Request, action: str, topology: str,
+                    csrf_token: str):
+        if not current_user(request):
+            return login_redirect()
+        if not csrf_ok(request, csrf_token):
+            return page(request, "denied.html", reason="Invalid form token.")
+        if not lab_runner.is_available():
+            return page(request, "denied.html", reason=(
+                "netlab is not installed on this host. Install it with "
+                "'pip install networklab' and a provider (libvirt or "
+                "containerlab); see docs/netlab-integration.md."))
+        settings = Settings.load()
+        path = _topology_choices(settings).get(topology)
+        if path is None:
+            return page(request, "denied.html", reason=(
+                f"No such lab topology {topology!r} under {settings.labs_dir}."))
+        busy = lab_service.store.running_for(str(path))
+        if busy is not None:
+            return page(request, "denied.html", reason=(
+                f"A lab job ({busy.action}) is already running for this "
+                f"topology. Wait for it to finish before starting another."))
+        job = lab_service.start(action, str(path),
+                                current_user(request) or "anonymous")
+        log(request, "lab", action, topology)
+        return RedirectResponse("/lab", status_code=HTTP_303_SEE_OTHER)
+
+    @app.get("/lab/jobs/{job_id}/status")
+    def lab_job_status(request: Request, job_id: str):
+        """Polled by the lab page while a job runs. Small on purpose."""
+        if not current_user(request):
+            return PlainTextResponse("", status_code=401)
+        job = lab_service.store.get(job_id)
+        if job is None:
+            return PlainTextResponse("", status_code=404)
+        return {"status": job.status, "action": job.action,
+                "error": job.error, "running": job.running}
 
     @app.get("/health")
     def health():
