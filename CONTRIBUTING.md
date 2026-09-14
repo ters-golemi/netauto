@@ -19,6 +19,15 @@ clear that bar does not belong here. The read guard itself — `assert_read_only
 — is not negotiable: a "write" that widens it so a command slips through is the
 one change that will always be refused.
 
+The **Lab** feature (`netauto/lab/`) is not an exception to any of this. netlab
+writes, but only to the throwaway VMs and containers it creates and destroys —
+ephemeral infrastructure, never a managed device — and the wrapper runs the
+external `netlab` binary rather than importing it, so netlab stays an optional
+tool and never a dependency. Auditing a lab connects to lab devices read-only,
+exactly as the Audit page does. A change that makes the lab code *configure* a
+managed device, or that pulls netlab into `requirements-*.txt`, misses the point
+of keeping it a separate, optional orchestration layer.
+
 Everything else is open, including the parts below that are deliberately hard
 to change. Hard to change means "argue for it in the commit message", not "no".
 
@@ -51,10 +60,13 @@ that must be permitted, one that must be refused. Default deny is the point;
 an unrecognised command is refused rather than forwarded.
 
 **The write-route allowlist** — `ALLOWED_POST_ROUTES` in `tests/conftest.py`.
-The GUI may expose a POST only if it changes something on the server, never on
-a device. A new POST route fails the guard until it is listed there with a
-reason. Adding the entry is the deliberate act; the guard is what makes it
-deliberate.
+Every POST the GUI exposes must be listed there with a reason, or the guard
+fails. Most change only server state; the enumerated exceptions are the one
+gated firmware write (the Software Upgrade workflow) and the Lab routes, which
+orchestrate ephemeral netlab infrastructure (`/lab/up`, `/lab/down`) or read lab
+devices read-only (`/lab/audit`) — never an unlisted managed-device write. A new
+POST route fails the guard until it is listed. Adding the entry is the
+deliberate act; the guard is what makes it deliberate.
 
 **The ad-hoc target gate** — `netauto/adhoc.py`. Connecting to a host that is
 not in the inventory makes the server offer its stored credentials to whatever
@@ -89,6 +101,16 @@ healthy from the outside.
 
 **An MCP tool or GUI page.** Read-only, attributable, and covered. Device-
 touching actions are logged against the account that made them.
+
+**A netlab device kind.** The Lab page maps netlab device kinds to netauto
+platforms in `KIND_TO_PLATFORM` (`netauto/lab/inventory.py`). Add a kind only if
+netauto already drives its platform — `tests/test_lab.py` asserts every mapped
+platform resolves to a real driver, so a kind pointing at a platform with no
+driver fails the suite. A kind netauto cannot drive is left out and shown as
+skipped, not faked. The snapshot parser (`netauto/lab/snapshot.py`) is the one
+place that knows netlab's output shape: keep it tolerant and fixture-tested
+rather than pointed at a live netlab, so the lab tests keep needing no
+hypervisor.
 
 ## Tests
 
