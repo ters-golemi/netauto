@@ -467,3 +467,24 @@ def test_main_maps_arguments_to_run(monkeypatch):
     assert captured["topology"] == "labs/demo/topology.yml"
     assert captured["fail_on"] == "any" and captured["provider"] == "clab"
     assert captured["keep"] is False
+
+
+def test_the_mixed_vendor_sample_maps_as_documented():
+    """Each node in the shipped mixed-vendor lab must map to a real driver, or
+    be a kind netauto knowingly skips -- so the sample cannot claim a platform
+    netauto does not actually drive."""
+    import yaml
+
+    topo = yaml.safe_load(Path("labs/mixed-vendor/topology.yml").read_text())
+    platforms = set()
+    for name, node in topo["nodes"].items():
+        kind = node["device"]
+        platform = lab_inventory.platform_for(kind)
+        if platform is None:
+            assert kind in lab_inventory.UNSUPPORTED_KINDS, (
+                f"{name} uses {kind!r}, which is neither mapped nor a known "
+                f"unsupported kind")
+        else:
+            platforms.add(platform)
+    # The point of the sample is vendor spread across netauto's drivers.
+    assert {"juniper_junos", "arista_eos", "cisco_nxos", "cisco_ios"} <= platforms

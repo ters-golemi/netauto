@@ -11,6 +11,11 @@ to keep your topologies out of the repository.
 - **`spine-leaf/`** — a four-node Arista EOS leaf-spine with an OSPF underlay.
   All native containers, so containerlab brings it up without VM images. This is
   the topology the CI recipe and the README examples use.
+- **`mixed-vendor/`** — a small four-vendor network (Juniper, Arista, Cisco
+  NX-OS, Cisco IOS) plus a Linux host, to show netauto's platform mapping across
+  drivers and the "skipped" state for a node it cannot drive. Heavier to run:
+  the Cisco and Juniper kinds are VMs, so it wants the libvirt provider and the
+  device images.
 
 ## Using it
 

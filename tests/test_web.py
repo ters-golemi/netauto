@@ -534,14 +534,15 @@ def test_lab_audit_page_rejects_a_non_audit_job(lab_ready, client):
     assert "No such lab audit" in client.get("/lab/audits/u1").text
 
 
-def test_discover_topologies_finds_the_committed_sample():
-    """The repo ships labs/spine-leaf/topology.yml; the Lab page must see it."""
+def test_discover_topologies_finds_the_committed_samples():
+    """The repo ships two sample topologies; the Lab page must see both."""
     from pathlib import Path
 
     from netauto.web.app import discover_topologies
 
     found = {str(p) for p in discover_topologies(Path("labs"))}
     assert "labs/spine-leaf/topology.yml" in found
+    assert "labs/mixed-vendor/topology.yml" in found
 
 
 def test_discover_topologies_ignores_netlab_generated_files(tmp_path):

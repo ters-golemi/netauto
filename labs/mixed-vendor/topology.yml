@@ -1,0 +1,46 @@
+# A small multi-vendor network, for the netauto Lab page.
+#
+# Where spine-leaf is one vendor and all containers, this one spans four
+# vendors to show netauto's platform mapping: each netlab device kind lands on
+# the driver that reads it, and one node (a Linux host) has no netauto driver at
+# all, so the Lab page lists it under "skipped" with the reason rather than
+# pretending to audit it.
+#
+#   edge   vsrx   Juniper Junos    -> juniper_junos
+#   core1  eos    Arista EOS       -> arista_eos
+#   core2  nxos   Cisco NX-OS      -> cisco_nxos
+#   acc1   iosv   Cisco IOS        -> cisco_ios
+#   srv1   linux  a host           -> (no driver: shown as skipped)
+#
+# Heavier to run than spine-leaf: the Cisco and Juniper kinds are VMs, so this
+# wants the libvirt provider and the device images installed (via netlab /
+# vrnetlab). See https://netlab.tools and docs/netlab-integration.md.
+
+name: mixed-vendor
+
+provider: libvirt
+
+# OSPF underlay across the network devices. The Linux host carries no routing
+# module -- it is a plain host hanging off the access switch.
+module: [ospf]
+
+nodes:
+  edge:
+    device: vsrx
+  core1:
+    device: eos
+  core2:
+    device: nxos
+  acc1:
+    device: iosv
+  srv1:
+    device: linux
+    module: []
+
+links:
+  - edge-core1
+  - edge-core2
+  - core1-core2
+  - core1-acc1
+  - core2-acc1
+  - acc1-srv1
