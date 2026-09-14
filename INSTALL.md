@@ -355,6 +355,69 @@ Then open `https://<vm>/` in a browser, sign in, and confirm the device list
 loads. Inspecting a device opens a live connection using the credentials from
 step 7 — the first inspection is the real test of the whole chain.
 
+## Optional: netlab for the Lab page
+
+The **Lab** tab builds virtual topologies with [netlab](https://netlab.tools)
+and audits them. It is optional, and it does **not** belong on this hardened
+appliance: bringing a lab up needs a hypervisor or container runtime (libvirt,
+or Docker + containerlab), device images, and privileges this service user
+deliberately does not have. netauto never depends on netlab — where it is
+absent the Lab page says so and the bring-up / tear-down actions refuse rather
+than pretend.
+
+**Where netlab belongs.** On a separate lab or build host, or a CI runner — not
+the read-only management appliance. Two use patterns, and only one needs netlab
+installed beside netauto:
+
+- **Auditing a lab needs no netlab on the box.** Once a lab is up somewhere the
+  appliance can reach, *Audit this lab* reads its on-disk `netlab.snapshot.yml`
+  and connects to the lab devices read-only — the same thing the Audit page
+  does for managed gear. Run netauto on the lab host, or copy the snapshot into
+  the lab's directory under `labs_dir`.
+- **Bringing a lab up or down from the page** needs netlab and a provider on the
+  same host as the web service, plus the service user's access to that provider
+  (the `libvirt` group, or the Docker socket). That widens the appliance well
+  beyond its read-only posture, and the step-9 systemd sandbox
+  (`ProtectSystem=strict`, `NoNewPrivileges=true`, a `CAP_NET_RAW`-only
+  capability set) blocks it by design. Run the up/down loop on a lab host or via
+  CI, not on the production appliance.
+
+**Install netlab and a provider** on that lab host (not the appliance):
+
+```bash
+pip install networklab
+netlab install ubuntu ansible      # system packages and Ansible that netlab needs
+netlab install containerlab        # the light provider; or: netlab install libvirt
+```
+
+containerlab is the lighter provider — native-container kinds (Arista cEOS,
+Nokia SR Linux, FRR, VyOS) need no VM images. libvirt is needed for the Cisco
+and Juniper VM kinds.
+
+**Point netauto at your topologies** and give the lab devices credentials. A
+topology is a directory holding a `topology.yml`, or a bare `*.yml` file, under
+`labs_dir`:
+
+```bash
+# config.yaml (defaults to labs/, which the repo already populates)
+labs_dir: labs
+
+# the LAB_* prefix netauto maps onto every lab node
+export LAB_USERNAME=admin LAB_PASSWORD=change-me
+```
+
+The repo ships two samples under `labs/` — `spine-leaf` (all containers, run it
+today) and `mixed-vendor` (four vendors, needs VM images). Bring one up from the
+Lab page, or run the whole loop headless as a design-regression gate:
+
+```bash
+python -m netauto.lab.ci labs/spine-leaf/topology.yml --fail-on high
+# exit 0 clean · 1 findings (design regressed) · 2 could not build/audit
+```
+
+See [docs/netlab-integration.md](docs/netlab-integration.md) for the design and
+[docs/lab-audit.ci.yml](docs/lab-audit.ci.yml) for a copyable CI workflow.
+
 ## Day-two operations
 
 **Add a colleague.** Takes effect immediately; no restart.
@@ -458,10 +521,14 @@ sudo userdel netauto
 
 ## What this install does not do
 
-It does not change your network. There is no commit path in the codebase,
-`net_run_show` is checked against a per-vendor read-only allowlist, and a test
-asserts the only POST routes in the web application are `/login` and
-`/logout`.
+It does not change the configuration of your network. There is no commit path in
+the codebase, `net_run_show` is checked against a per-vendor read-only
+allowlist, and a test pins every POST route in the web application to a
+justified allowlist. The only one that can *write* to a managed device is the
+Software Upgrade workflow's firmware install — off unless `allow_writes` is set,
+and gated further by the driver's upgrade capability and a device-name
+confirmation. The Lab routes POST too, but they orchestrate ephemeral netlab
+infrastructure or read lab devices read-only, never a managed-device write.
 
 The vendor drivers for Cisco, Juniper, Aruba, Meraki and Fortinet are written
 against each SDK's documented API but have not been exercised against physical
