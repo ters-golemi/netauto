@@ -29,8 +29,10 @@ MAX_JOBS = 20
 PENDING, RUNNING, DONE, FAILED = "pending", "running", "done", "failed"
 
 #: The actions a job can be. "up" also writes the snapshot so the lab's nodes
-#: can be listed afterwards; "down" tears the lab back down and cleans up.
-UP, DOWN = "up", "down"
+#: can be listed afterwards; "down" tears the lab back down and cleans up;
+#: "audit" runs the compliance ruleset against the running lab (no netlab
+#: needed -- it reads the on-disk snapshot and connects to the devices).
+UP, DOWN, AUDIT = "up", "down", "audit"
 
 
 @dataclass
@@ -46,6 +48,9 @@ class LabJob:
     error: str = ""
     created_at: float = field(default_factory=time.time)
     finished_at: float = 0.0
+    #: Set by audit jobs only: the per-device audit dicts and their totals.
+    results: list = field(default_factory=list)
+    summary: dict = field(default_factory=dict)
 
     @property
     def running(self) -> bool:
@@ -114,7 +119,18 @@ def _run_action(job: LabJob) -> None:
             job.output = out
         elif job.action == DOWN:
             job.output = runner.down(job.topology, cleanup=True)
-        else:  # defensive: the routes only ever pass UP or DOWN
+        elif job.action == AUDIT:
+            # Imported here so the audit machinery (and its config/driver
+            # dependencies) is not pulled in just to run up/down.
+            from netauto.config import Settings
+            from netauto.lab import audit as lab_audit
+
+            result = lab_audit.audit_lab(job.topology, Settings.load())
+            job.results = result.results
+            job.summary = result.summary
+            n = result.summary.get("devices", 0)
+            job.output = f"{n} device{'' if n == 1 else 's'} audited"
+        else:  # defensive: the routes only ever pass a known action
             raise LabError(f"unknown lab action {job.action!r}")
         job.status = DONE
     except LabError as exc:

@@ -233,6 +233,12 @@ mergeable in CI:
 3. **Validation loop** — a one-click "audit this lab" that runs the existing
    compliance checks against the lab inventory and shows the findings, i.e. the
    "test the design" payoff.
+   *(Done — `netauto/lab/audit.py` (`audit_lab`), the `audit` action in
+   `service.py`, the `/lab/audit` and `/lab/audits/{id}` routes, and
+   `web/templates/lab_audit.html`. It reuses `audit_device`, so every rule and
+   finding is the one netauto already produces; it reads the on-disk snapshot
+   and connects read-only, so no netlab is needed to audit an up lab, and lab
+   findings are kept out of the compliance metrics.)*
 4. *(Later, optional)* a CI recipe: up → audit → assert clean → down, as a
    template others can copy for design regression testing.
 

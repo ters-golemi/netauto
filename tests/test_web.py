@@ -475,3 +475,60 @@ def test_lab_up_requires_a_valid_csrf_token(lab_ready, client):
     r = client.post("/lab/up", data={"topology": lab_ready["id"],
                                      "csrf_token": "wrong"})
     assert "Invalid form token" in r.text
+
+
+def test_lab_audit_starts_a_job_and_redirects_to_its_results(lab_ready, client):
+    import types
+
+    from netauto.inventory import Device
+    from netauto.lab.inventory import Mapped
+
+    lab_ready["monkeypatch"].setattr(
+        lab_ready["appmod"], "lab_nodes_for",
+        lambda p: Mapped(devices=[Device(name="r1", platform="cisco_ios",
+                                         host="10.0.0.1", credentials="LAB")],
+                         skipped=[]))
+    started = []
+    lab_ready["monkeypatch"].setattr(
+        client.app.state.lab, "start",
+        lambda action, topology, user: (
+            started.append((action, topology, user))
+            or types.SimpleNamespace(id="job123")))
+    token = _csrf_from(client.get("/lab").text)
+    r = client.post("/lab/audit", data={"topology": lab_ready["id"],
+                                        "csrf_token": token},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/lab/audits/job123"
+    assert started == [("audit", "/labs/demo/topology.yml", "alice")]
+
+
+def test_lab_audit_is_refused_when_the_lab_is_down(lab_ready, client):
+    # lab_ready leaves lab_nodes_for returning None -> the lab is down.
+    token = _csrf_from(client.get("/lab").text)
+    r = client.post("/lab/audit", data={"topology": lab_ready["id"],
+                                        "csrf_token": token})
+    assert "not up" in r.text
+
+
+def test_lab_audit_page_renders_the_findings(lab_ready, client):
+    from netauto.lab.service import AUDIT, DONE, LabJob
+
+    job = LabJob(id="a1", action=AUDIT, topology="/labs/demo/topology.yml",
+                 user="alice", status=DONE,
+                 results=[{"device": "r1", "platform": "cisco_ios", "findings": [
+                     {"rule_id": "SSH1", "title": "SSH v2 only", "severity": "high",
+                      "status": "fail", "detail": "telnet is enabled",
+                      "evidence": ["transport input telnet"]}]}],
+                 summary={"devices": 1, "fail": 1, "pass": 0, "errors": 0})
+    client.app.state.lab.store.add(job)
+    body = client.get("/lab/audits/a1").text
+    assert "Lab audit" in body and "r1" in body
+    assert "SSH1" in body and "telnet is enabled" in body
+
+
+def test_lab_audit_page_rejects_a_non_audit_job(lab_ready, client):
+    from netauto.lab.service import DONE, LabJob, UP
+
+    client.app.state.lab.store.add(
+        LabJob(id="u1", action=UP, topology="t", user="alice", status=DONE))
+    assert "No such lab audit" in client.get("/lab/audits/u1").text

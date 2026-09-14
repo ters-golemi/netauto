@@ -289,3 +289,66 @@ def test_the_store_keeps_newest_first_and_evicts_finished():
                                      created_at=float(i)))
     ids = [j.id for j in store.list()]
     assert ids == ["2", "1"]  # newest first, oldest finished job evicted
+
+
+# --- auditing a lab ---------------------------------------------------------
+
+from netauto.lab import audit as lab_audit  # noqa: E402
+
+
+def _dev(name, platform="cisco_ios", host="10.0.0.1"):
+    return Device(name=name, platform=platform, host=host, credentials="LAB")
+
+
+def test_audit_lab_audits_each_drivable_node(monkeypatch):
+    from netauto.config import Settings
+
+    mapped = lab_inventory.Mapped(
+        devices=[_dev("r1", "cisco_ios"), _dev("r2", "arista_eos")],
+        skipped=[(lab_snapshot.LabNode("x1", "frr", "10.0.0.9"),
+                  "no netauto driver for netlab kind 'frr'")],
+    )
+    monkeypatch.setattr(lab_audit.runner, "read_inventory",
+                        lambda t, refresh=False: mapped)
+    audited = []
+
+    def fake_audit(device, settings):
+        audited.append(device.name)
+        return {"device": device.name, "platform": device.platform,
+                "summary": {"pass": 3, "fail": 1, "critical": 0, "high": 1}}
+
+    monkeypatch.setattr(lab_audit, "audit_device", fake_audit)
+    result = lab_audit.audit_lab("labs/demo/topology.yml",
+                                 Settings(inventory_path="x"))
+    assert audited == ["r1", "r2"]
+    assert result.summary == {"devices": 2, "fail": 2, "pass": 6,
+                              "errors": 0, "critical": 0, "high": 2}
+    # The nodes netauto cannot drive are carried through, not dropped.
+    assert result.skipped[0][0].name == "x1"
+
+
+def test_audit_lab_counts_an_unreachable_node_as_an_error_not_a_pass(monkeypatch):
+    from netauto.config import Settings
+
+    mapped = lab_inventory.Mapped(devices=[_dev("r1")], skipped=[])
+    monkeypatch.setattr(lab_audit.runner, "read_inventory",
+                        lambda t, refresh=False: mapped)
+    monkeypatch.setattr(lab_audit, "audit_device",
+                        lambda d, s: {"device": d.name, "platform": d.platform,
+                                      "error": "no route to host", "findings": []})
+    result = lab_audit.audit_lab("t", Settings(inventory_path="x"))
+    assert result.summary["errors"] == 1 and result.summary["pass"] == 0
+
+
+def test_audit_action_runs_the_ruleset_and_stores_results(monkeypatch):
+    fake = lab_audit.LabAudit(
+        topology="t",
+        results=[{"device": "r1", "summary": {"fail": 1, "pass": 2}}],
+        summary={"devices": 1, "fail": 1, "pass": 2, "errors": 0},
+    )
+    monkeypatch.setattr(lab_audit, "audit_lab", lambda topo, settings: fake)
+    svc = lab_service.LabService()
+    job = svc.start(lab_service.AUDIT, "t", "alice", spawn=_inline)
+    assert job.status == lab_service.DONE
+    assert job.results == fake.results and job.summary == fake.summary
+    assert "1 device audited" in job.output

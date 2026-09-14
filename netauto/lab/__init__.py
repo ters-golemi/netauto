@@ -37,16 +37,19 @@ from netauto.lab.runner import (
     up,
     write_snapshot,
 )
+from netauto.lab.audit import LabAudit, audit_lab
 from netauto.lab.service import LabJob, LabJobStore, LabService
 from netauto.lab.snapshot import LabNode
 
 __all__ = [
     "KIND_TO_PLATFORM",
+    "LabAudit",
     "LabJob",
     "LabJobStore",
     "LabNode",
     "LabService",
     "Mapped",
+    "audit_lab",
     "bring_up",
     "down",
     "from_snapshot",

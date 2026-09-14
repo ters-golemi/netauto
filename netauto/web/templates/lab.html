@@ -26,7 +26,7 @@
   <div class="tablewrap">
   <table class="data grid">
     <thead><tr><th>Started</th><th>Action</th><th>Topology</th><th>By</th>
-               <th>Status</th></tr></thead>
+               <th>Status</th><th></th></tr></thead>
     <tbody>
     {% for j in jobs %}
       <tr data-job="{{ j.id }}">
@@ -36,6 +36,7 @@
         <td>{{ j.user }}</td>
         <td><span class="status {{ 'fail' if j.status == 'failed' else j.status }}" data-job-status>{{ j.status }}</span>
             {% if j.error %}<div class="note">{{ j.error }}</div>{% endif %}</td>
+        <td>{% if j.action == 'audit' %}<a href="/lab/audits/{{ j.id }}">View</a>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -71,6 +72,14 @@
       {% else %}
         <button type="submit" class="primary">Bring up</button>
       {% endif %}
+    </form>
+    {% endif %}
+
+    {% if lab.up %}
+    <form method="post" action="/lab/audit" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="topology" value="{{ lab.id }}">
+      <button type="submit" class="primary">Audit this lab</button>
     </form>
     {% endif %}
 

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% set nav = 'lab' %}
+{% block title %}Lab audit — Netauto{% endblock %}
+{% block content %}
+<p class="crumb"><a href="/lab">Lab</a> → audit</p>
+<h1>Lab audit</h1>
+<p class="note">The same compliance rules netauto runs against production, run
+   against a netlab-built lab: a design checked before it reaches real hardware.
+   Read-only — this reads each lab device's configuration and evaluates rules,
+   and changes nothing. Lab findings are kept out of the compliance metrics.</p>
+<p class="note">Topology <code>{{ job.topology }}</code> · started {{ job.created_label }}
+   by {{ job.user }}.</p>
+
+{% if job.running or job.status == 'pending' %}
+<div class="alert block" id="auditbanner">
+  <p><strong>Audit running…</strong> connecting to each lab device and reading
+     its configuration. This page refreshes when it finishes.</p>
+</div>
+{% elif job.status == 'failed' %}
+<div class="alert block"><strong>Audit failed.</strong><p>{{ job.error }}</p></div>
+{% else %}
+<div class="tiles small">
+  <div class="tile"><span class="num">{{ job.summary.devices }}</span><span class="lbl">Audited</span></div>
+  <div class="tile bad"><span class="num">{{ job.summary.fail }}</span><span class="lbl">Failures</span></div>
+  <div class="tile good"><span class="num">{{ job.summary['pass'] }}</span><span class="lbl">Passes</span></div>
+  <div class="tile warn"><span class="num">{{ job.summary.errors }}</span><span class="lbl">Unreachable</span></div>
+</div>
+
+{% for r in job.results %}
+<section class="result">
+  <h2>{{ r.device }} <code>{{ r.platform }}</code></h2>
+  {% if r.error %}
+    <div class="alert block"><strong>Not audited.</strong><p>{{ r.error }}</p>
+      <p class="note">An unreachable device is not a passing device. A lab node
+         needs to be reachable and to have <code>LAB_*</code> credentials.</p></div>
+  {% else %}
+    <div class="tablewrap">
+    <table class="data grid">
+      <thead><tr><th>Rule</th><th>Severity</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody>
+      {% for f in r.findings %}
+        <tr class="{{ 'row-fail' if f.status == 'fail' }}">
+          <td><code>{{ f.rule_id }}</code> {{ f.title }}</td>
+          <td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td>
+          <td><span class="status {{ f.status }}">{{ f.status }}</span></td>
+          <td>
+            {{ f.detail }}
+            {% if f.evidence %}<div class="evidence">{% for e in f.evidence %}<code>{{ e }}</code>{% endfor %}</div>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endif %}
+
+<script>
+(function () {
+  var banner = document.getElementById('auditbanner');
+  if (!banner) return;  // already finished when the page rendered
+  var poll = setInterval(function () {
+    fetch('/lab/jobs/{{ job.id }}/status', {credentials: 'same-origin'})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && !data.running && data.status !== 'pending') {
+          clearInterval(poll);
+          window.location.reload();  // reload for the findings
+        }
+      }).catch(function () { /* a dropped poll is not worth an alert */ });
+  }, 3000);
+})();
+</script>
+{% endblock %}

@@ -785,6 +785,50 @@ def create_app(users: UserStore | None = None) -> FastAPI:
         log(request, "lab", action, topology)
         return RedirectResponse("/lab", status_code=HTTP_303_SEE_OTHER)
 
+    @app.post("/lab/audit")
+    def lab_audit_start(request: Request, topology: str = Form(""),
+                        csrf_token: str = Form("")):
+        """Run the compliance ruleset against a running lab.
+
+        Unlike up/down this needs no netlab -- it reads the on-disk snapshot and
+        connects to the lab devices read-only -- so it is gated on the lab being
+        up (a snapshot present), not on netlab being installed.
+        """
+        if not current_user(request):
+            return login_redirect()
+        if not csrf_ok(request, csrf_token):
+            return page(request, "denied.html", reason="Invalid form token.")
+        settings = Settings.load()
+        path = _topology_choices(settings).get(topology)
+        if path is None:
+            return page(request, "denied.html", reason=(
+                f"No such lab topology {topology!r} under {settings.labs_dir}."))
+        if lab_nodes_for(path) is None:
+            return page(request, "denied.html", reason=(
+                "This lab is not up (no snapshot to read). Bring it up before "
+                "auditing it."))
+        busy = lab_service.store.running_for(str(path))
+        if busy is not None:
+            return page(request, "denied.html", reason=(
+                f"A lab job ({busy.action}) is already running for this "
+                f"topology. Wait for it to finish."))
+        job = lab_service.start(lab_service_mod.AUDIT, str(path),
+                                current_user(request) or "anonymous")
+        log(request, "lab", "audit", topology)
+        return RedirectResponse(f"/lab/audits/{job.id}",
+                                status_code=HTTP_303_SEE_OTHER)
+
+    @app.get("/lab/audits/{job_id}", response_class=HTMLResponse)
+    def lab_audit_page(request: Request, job_id: str):
+        if not current_user(request):
+            return login_redirect()
+        job = lab_service.store.get(job_id)
+        if job is None or job.action != lab_service_mod.AUDIT:
+            return page(request, "denied.html", reason=(
+                "No such lab audit. Jobs are held in memory only and are "
+                "discarded when the service restarts."))
+        return page(request, "lab_audit.html", job=job)
+
     @app.get("/lab/jobs/{job_id}/status")
     def lab_job_status(request: Request, job_id: str):
         """Polled by the lab page while a job runs. Small on purpose."""

@@ -41,6 +41,12 @@ ALLOWED_POST_ROUTES: dict[str, str] = {
         "Tears a netlab lab back down. Same category as /lab/up: it destroys "
         "ephemeral lab infrastructure, never a managed device."
     ),
+    "/lab/audit": (
+        "Runs the compliance ruleset against a running lab. Connects to the lab "
+        "devices READ-ONLY and evaluates rules -- the same thing the /audit page "
+        "does for managed devices, and writing nothing. POSTs because it starts "
+        "a background job (server state), not because it changes a device."
+    ),
 }
 
 
