@@ -42,9 +42,11 @@ python3 -m venv .venv
 The suite needs no network devices and no credentials. If it needs either to
 pass, that is the bug.
 
-There is no linter, formatter or type checker configured, and no CI. Match the
-surrounding code and run the tests yourself before committing; nothing else
-will run them for you.
+There is no linter, formatter or type checker configured, so match the
+surrounding code by hand. CI (`.github/workflows/tests.yml`) does run the suite
+on every push to `main` and every pull request, across Python 3.11, 3.12 and
+3.14 — but run it yourself before committing rather than finding out on the
+runner.
 
 ## Four boundaries a change has to respect
 
