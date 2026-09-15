@@ -350,6 +350,7 @@ Port 8080 needs no rule — the service binds to localhost only.
 | Auth is enforced | `curl -ks https://localhost/devices \| head -1` | redirect, not device data |
 | Accounts exist | `manage list` (step 8 form) | your admin account |
 | Tests | `.venv/bin/python -m pytest tests/ -q` | ends in `passed`, nothing failed |
+| Lab tools load | `.venv/bin/python -m netauto.lab.ci --help` | a `usage:` line (netlab itself is optional — see below) |
 
 Then open `https://<vm>/` in a browser, sign in, and confirm the device list
 loads. Inspecting a device opens a live connection using the credentials from
