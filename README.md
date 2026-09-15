@@ -546,12 +546,15 @@ needs a real run to shake out. The rules themselves are tested against
 representative config snippets, not captured production configs, so their
 false-positive rate is unmeasured.
 
-The **Lab (netlab) wrapper has not been run against a real netlab install**. Its
-snapshot parser and platform mapping are tested against a captured netlab
-topology fixture, and the CLI runner against a faked binary, so the pinned
-`netlab create -o yaml:` output form and the exact command argv are the parts a
-first real run should confirm — once a lab is up, auditing it is the same driver
-code as an inventory device.
+The **Lab (netlab) snapshot seam has been run against a real netlab install**
+(netlab 26.08): `netlab create` produces the transformed topology, and netauto's
+parser reads it and maps the nodes to platforms. The first real run corrected the
+pinned command — the output form is `netlab create -o yaml=<file>` (an `=`, not
+the `:` first assumed) — and confirmed netauto reads the management address from
+`mgmt.ipv4` where real netlab records it. What is still unverified is a full
+**`netlab up`** with a provider and device images, and auditing the resulting
+live lab; once a lab is up, auditing it is the same driver code as an inventory
+device, which has its own real-gear caveats above.
 
 ## Contributing
 

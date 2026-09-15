@@ -194,7 +194,7 @@ def test_down_with_cleanup_adds_the_flag(fake_netlab):
 def test_write_snapshot_uses_the_pinned_output_form(fake_netlab):
     path = runner.write_snapshot("topology.yml")
     (argv, _), = fake_netlab["calls"]
-    assert argv == ["/usr/bin/netlab", "create", "-o", f"yaml:{runner.SNAPSHOT_FILE}"]
+    assert argv == ["/usr/bin/netlab", "create", "-o", f"yaml={runner.SNAPSHOT_FILE}"]
     assert path.name == runner.SNAPSHOT_FILE
 
 

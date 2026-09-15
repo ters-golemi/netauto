@@ -2,7 +2,7 @@
 
 netlab's own snapshot is a pickle -- an internal, version-coupled artifact we
 have no business unpickling. What netlab *also* emits, and what this reads, is
-the transformed topology as YAML (``netlab create -o yaml:<file>``): a stable,
+the transformed topology as YAML (``netlab create -o yaml=<file>``): a stable,
 documented data model with a top-level ``nodes`` dictionary keyed by node name.
 
 From each node we need exactly three things -- its name, its netlab device kind
@@ -70,7 +70,7 @@ def parse(data: dict[str, Any]) -> list[LabNode]:
     if not isinstance(data, dict) or "nodes" not in data:
         raise LabError(
             "Not a netlab topology snapshot: expected a top-level 'nodes' key. "
-            "Produce it with 'netlab create -o yaml:<file>'."
+            "Produce it with 'netlab create -o yaml=<file>'."
         )
     nodes = data["nodes"]
     # netlab's transformed model keys nodes by name; a pre-transform topology
@@ -103,7 +103,7 @@ def load(path: str | Path) -> list[LabNode]:
     if not path.exists():
         raise LabError(
             f"netlab snapshot not found at {path}. Produce it with "
-            f"'netlab create -o yaml:{path.name}' in the lab directory."
+            f"'netlab create -o yaml={path.name}' in the lab directory."
         )
     try:
         data = yaml.safe_load(path.read_text())

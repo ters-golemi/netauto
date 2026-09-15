@@ -49,13 +49,13 @@ integrate by **running its CLI and parsing the files it emits**.
 - Output we consume: the **transformed topology as YAML**. netlab's *native*
   snapshot is a pickle (`netlab.snapshot.pickle`) — version-coupled and not
   ours to unpickle — so instead we ask netlab to dump the same data model as
-  YAML with `netlab create -o yaml:netlab.snapshot.yml`. That gives a top-level
+  YAML with `netlab create -o yaml=netlab.snapshot.yml`. That gives a top-level
   `nodes` dictionary keyed by node name, each carrying its device kind and
   **management IP** (`ansible_host`, or `mgmt.ipv4` with a prefix).
 
 This is the whole integration seam: run `netlab up`, dump and read the topology
 YAML for `name → (kind, mgmt IP)`, map kinds to netauto platforms, build an
-`Inventory`. The `-o yaml:` form is the one pinned line; the parser is verified
+`Inventory`. The `-o yaml=` form is the one pinned line; the parser is verified
 against captured fixtures independently, so a netlab release that changes the
 output is a contained fix.
 
@@ -131,7 +131,7 @@ netauto/lab/
 - **`runner.up(topology, provider=None)`** — shells out to `netlab up` in the
   topology's directory, returns when the lab is converged (or raises `LabError`
   with netlab's own diagnostic). `down()` runs `netlab down`; `status()` wraps
-  `netlab status`; `write_snapshot()` runs the pinned `netlab create -o yaml:`.
+  `netlab status`; `write_snapshot()` runs the pinned `netlab create -o yaml=`.
   `is_available()` probes for the binary, so a caller can offer a lab action
   only where netlab is installed.
 - **`snapshot.load(path)`** — parses the topology YAML into

@@ -136,12 +136,12 @@ def status(topology: str | Path, *, timeout: int | None = 60) -> str:
 def write_snapshot(topology: str | Path, *, timeout: int | None = 120) -> Path:
     """Ask netlab to dump the transformed topology as YAML; return its path.
 
-    This is the pinned seam: the ``-o yaml:<file>`` form is what the snapshot
+    This is the pinned seam: the ``-o yaml=<file>`` form is what the snapshot
     parser expects. If a netlab release changes it, this one line changes with
     it and the parser's fixtures verify the shape independently.
     """
     workdir, targs = _lab_dir(topology)
-    _run(["create", *targs, "-o", f"yaml:{SNAPSHOT_FILE}"],
+    _run(["create", *targs, "-o", f"yaml={SNAPSHOT_FILE}"],
          workdir=workdir, timeout=timeout)
     return workdir / SNAPSHOT_FILE
 
