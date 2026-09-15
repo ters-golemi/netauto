@@ -44,7 +44,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install netauto
-        run: pip install -e .
+        # netauto is not a packaged distribution -- it runs from the checkout,
+        # with dependencies from requirements-app.txt (minimum pins that resolve
+        # across 3.11-3.14). The `python -m netauto.lab.ci` below runs from the
+        # repo root, so no install of netauto itself is needed.
+        run: pip install -r requirements-app.txt
 
       - name: Build, audit, assert clean, tear down
         env:

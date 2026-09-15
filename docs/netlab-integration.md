@@ -152,11 +152,16 @@ skipped, honestly, with a note in the lab view.
 
 | netlab device kind | netauto platform | Notes |
 | --- | --- | --- |
-| `iosv`, `iol`, `csr`, `cat8000v` | `cisco_ios` | via napalm `ios` |
+| `iosv`, `iol`, `ioll2`, `csr`, `cat8000v` | `cisco_ios` | via napalm `ios` |
 | `nxos` | `cisco_nxos` | via napalm `nxos_ssh` |
+| `iosxr` | `cisco_xr` | via napalm `iosxr` |
 | `eos` (Arista cEOS/vEOS) | `arista_eos` | native container — cheap to lab |
-| `vsrx`, `vptx` (Juniper) | `juniper_junos` | VM via vrnetlab |
-| `frr`, `vyos`, `srlinux`, `cumulus` | *(none)* | no netauto driver — skipped |
+| `vsrx`, `vmx`, `vptx`, `vjunos-*` (Juniper) | `juniper_junos` | VM via vrnetlab |
+| `frr`, `vyos`, `srlinux`, `cumulus`, `linux` | *(none)* | no netauto driver — skipped |
+
+The exact map is `KIND_TO_PLATFORM` in `netauto/lab/inventory.py`, and
+`UNSUPPORTED_KINDS` names the kinds skipped on purpose; a test asserts every
+mapped platform resolves to a real driver.
 
 Aruba, Meraki and Fortinet have no first-class netlab images, so the lab side
 covers the Cisco / Juniper / Arista routing-and-switching subset — still the

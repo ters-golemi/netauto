@@ -308,8 +308,8 @@ and netauto's connection *to* lab devices stays read-only — it audits them, it
 does not configure them.
 
 Only the platforms netauto already drives are mapped (Cisco IOS/NX-OS/IOS-XR,
-Arista EOS, Juniper Junos, and the container kinds); other netlab kinds are
-listed but skipped, with the reason. Lab devices share one credential prefix
+Arista EOS and Juniper Junos); other netlab kinds — including container-native
+ones like FRR, VyOS and SR Linux — are listed but skipped, with the reason. Lab devices share one credential prefix
 (`LAB` by default), so export `LAB_USERNAME` and `LAB_PASSWORD` before auditing.
 See [docs/netlab-integration.md](docs/netlab-integration.md) for the design, and
 [docs/lab-audit.ci.yml](docs/lab-audit.ci.yml) for a copyable CI workflow.
