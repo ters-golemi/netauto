@@ -1,27 +1,26 @@
 /* Netauto GUI. System fonts only -- this may run on a network with no internet. */
 
 :root {
-  --ground:#EDF1F3; --surface:#FFFFFF; --sunken:#E3E9ED;
-  --ink:#131C24; --muted:#56656F; --faint:#7C8B95;
-  --line:#D3DCE2; --hairline:#E6ECF0;
-  --accent:#16607F; --accent-ink:#FFFFFF; --accent-soft:#E0EDF3;
-  --good:#2C7A55; --good-soft:#DEEDE6;
-  --warn:#9C6316; --warn-soft:#F5E9D8;
-  --bad:#A33A2A;  --bad-soft:#F6E2DE;
+  /* Deep maroon, one theme for everyone. Surfaces climb toward the accent side
+     of maroon rather than toward grey, so a card reads as lifted off the page
+     and not as a smudge on it. */
+  --ground:#2A0F14; --surface:#3A171D; --sunken:#220B10;
+  --ink:#FFFFFF; --muted:#D8B4BA; --faint:#A8828A;
+  --line:#5A2730; --hairline:#431D24;
+  /* Cool against a warm ground, and -- the reason it is not the gold maroon
+     usually pairs with -- nowhere near the red/amber/green the status badges
+     use. A link can never be mistaken for a failure. */
+  --accent:#6FD3E8; --accent-ink:#0E2229; --accent-soft:#17323B;
+  --good:#5FD39B; --good-soft:#13342A;
+  --warn:#E8B15D; --warn-soft:#3D2D10;
+  /* Coral, not red: on maroon a red badge is camouflage, and "fail" is the
+     one thing a reader scans a device table for. */
+  --bad:#FF8A78;  --bad-soft:#5E2119; --bad-ink:#2C0B07;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ground:#0F161B; --surface:#161F26; --sunken:#1B252D;
-    --ink:#E4EBF0; --muted:#9AA9B4; --faint:#74838E;
-    --line:#26333C; --hairline:#202B33;
-    --accent:#3E9DC4; --accent-ink:#08141A; --accent-soft:#14313F;
-    --good:#56C193; --good-soft:#14322A;
-    --warn:#DBA24A; --warn-soft:#33280F;
-    --bad:#E08272;  --bad-soft:#3A1F1A;
-  }
+  /* Scrollbars, form controls and Chrome's autofill wash are drawn by the
+     browser, not by anything above. Without this they arrive light. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -127,7 +126,7 @@ button.primary:hover { filter:brightness(1.08); }
    different from the primary action without shouting. */
 button.danger {
   font:inherit; font-weight:600; cursor:pointer; margin-top:18px;
-  background:var(--bad); color:#FFFFFF;
+  background:var(--bad); color:var(--bad-ink);
   border:none; border-radius:6px; padding:10px 18px;
 }
 button.danger:hover { filter:brightness(1.08); }
@@ -282,7 +281,7 @@ h2 .more { font-size:12px; text-transform:none; letter-spacing:0; color:var(--ac
 
 .framewrap {
   margin-top:16px; border:1px solid var(--line); border-radius:8px;
-  overflow:hidden; background:var(--panel, #fff);
+  overflow:hidden; background:var(--panel, var(--surface));
 }
 /* Fixed height rather than an aspect ratio: the panel count is fixed, so the
    dashboard has a natural height that scaling would only letterbox. */
@@ -297,7 +296,7 @@ h2 .more { font-size:12px; text-transform:none; letter-spacing:0; color:var(--ac
 pre.cmd {
   margin:10px 0; padding:10px 12px; border:1px solid var(--line);
   border-radius:6px; overflow-x:auto; font-size:13px;
-  background:rgba(127,127,127,0.08);
+  background:var(--sunken);
 }
 
 /* -- workflows ---------------------------------------------------------- */
