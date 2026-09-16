@@ -63,24 +63,31 @@
     </h3>
     <p class="note"><code>{{ lab.id }}</code></p>
 
-    {% if available %}
-    <form method="post" action="/lab/{{ 'down' if lab.up else 'up' }}" class="inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="topology" value="{{ lab.id }}">
-      {% if lab.up %}
-        <button type="submit" class="danger">Tear down</button>
-      {% else %}
-        <button type="submit" class="primary">Bring up</button>
+    {#- One row for everything you can do to this lab. They used to be two
+        sibling forms, which stack as blocks, and the margin reset inside
+        .inline left them with no gap at all -- the buttons touched. -#}
+    {% if available or lab.up %}
+    <div class="inline">
+      {% if available %}
+      <form method="post" action="/lab/{{ 'down' if lab.up else 'up' }}" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="topology" value="{{ lab.id }}">
+        {% if lab.up %}
+          <button type="submit" class="danger">Tear down</button>
+        {% else %}
+          <button type="submit" class="primary">Bring up</button>
+        {% endif %}
+      </form>
       {% endif %}
-    </form>
-    {% endif %}
 
-    {% if lab.up %}
-    <form method="post" action="/lab/audit" class="inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="topology" value="{{ lab.id }}">
-      <button type="submit" class="primary">Audit this lab</button>
-    </form>
+      {% if lab.up %}
+      <form method="post" action="/lab/audit" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="topology" value="{{ lab.id }}">
+        <button type="submit" class="primary">Audit this lab</button>
+      </form>
+      {% endif %}
+    </div>
     {% endif %}
 
     {% if lab.up %}

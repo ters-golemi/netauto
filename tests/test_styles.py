@@ -79,3 +79,30 @@ def test_data_values_do_not_collide_with_structural_rules(family, values):
         f"stylesheet also styles as a bare rule. Scope that rule to the element "
         f"it is for; see the note at the top of this file."
     )
+
+
+def test_no_rule_overrides_the_width_of_a_field_that_declares_its_size():
+    """A `size` attribute is the template saying how wide a field should be.
+
+    The stylesheet pinned every `.inline input[size]` to a fixed 9ch. That was
+    written for the ports box on the Discover page, which is short because it
+    holds "22,23" -- but the selector also caught the two Software Upgrade
+    fields, whose placeholders name a firmware image and a server. They were
+    clipped to "firmwar" and "tftp/ftp s", and the only place it showed was a
+    screenshot.
+
+    The same shape as the collisions above: a selector matching more than the
+    thing it was written for. The fix is not to drop the `size` attributes --
+    they carry real intent, and three templates set them to three different
+    values -- so the rule must leave the width alone.
+    """
+    rules = re.findall(r'([^{}]*input\[size\][^{}]*)\{([^}]*)\}', CSS.read_text())
+    assert rules, "no rule targets input[size]; has the selector been renamed?"
+    # Anchored to a property boundary: `min-width:0` is fine and is what stops
+    # the 240px flex-basis above stretching these fields out.
+    pinned = [sel.strip() for sel, body in rules
+              if re.search(r'(?:^|;)\s*width\s*:', body)]
+    assert not pinned, (
+        f"{pinned} sets a width on inputs that declare their own size, which "
+        f"clips whichever field is longest. Size them in the template."
+    )
