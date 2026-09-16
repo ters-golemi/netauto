@@ -89,6 +89,14 @@ code {
   background:var(--sunken); padding:1px 5px; border-radius:3px;
 }
 
+/* Links the templates leave unclassed: a device name in a results table, the
+   "View" on a run, diagrams.net in the topology prose. Without this they take
+   the browser's own link colour, which belongs to no theme and lands on the
+   maroon somewhere between purple and periwinkle. Element-level on purpose --
+   every .btn, .chips a and nav rule above is a class, so all of them still
+   win. */
+main a { color:var(--accent); }
+
 /* -- login ------------------------------------------------------------- */
 
 .card {
