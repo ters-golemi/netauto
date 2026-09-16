@@ -317,6 +317,14 @@ pre.cmd {
 /* Qualified to the div it dresses. Unqualified, it also matched the activity
    badge for the "workflow" action -- see tests/test_styles.py. */
 div.workflow { border-top:1px solid var(--line); padding:14px 0 4px; }
+/* The row of things you can do to a lab, which otherwise sits flush against
+   the node table under it. The margins are uneven so that the gaps are not:
+   the node table's header carries 9px of its own padding, so an equal 16px
+   bottom margin measures 28px on screen against 18px above it. Scoped rather
+   than a bare `.actions`, which is the lesson of tests/test_styles.py -- and
+   the Workflows page puts its own form.inline directly inside div.workflow,
+   so a structural selector here would move that page too. */
+div.workflow .actions { margin:16px 0 8px; }
 div.workflow h3 { margin:0 0 6px; font-size:15px; }
 ol.steps { margin:5px 0 12px; padding-left:20px; }
 ol.steps li { margin:4px 0; line-height:1.45; }

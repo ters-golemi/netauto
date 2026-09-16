@@ -67,7 +67,7 @@
         sibling forms, which stack as blocks, and the margin reset inside
         .inline left them with no gap at all -- the buttons touched. -#}
     {% if available or lab.up %}
-    <div class="inline">
+    <div class="inline actions">
       {% if available %}
       <form method="post" action="/lab/{{ 'down' if lab.up else 'up' }}" class="inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
