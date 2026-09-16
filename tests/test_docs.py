@@ -116,3 +116,59 @@ def test_no_document_pins_a_test_count():
             f"{doc.name} pins a test count, which drifts the next time anyone "
             f"adds a test: {found}. Say what the suite needs instead."
         )
+
+
+# -- screenshots -----------------------------------------------------------
+#
+# The GUI screenshots drifted without anyone noticing: the committed PNGs were
+# a colour scheme and two navigation tabs behind the app they claimed to show.
+# Nothing could have caught that, because nothing tied the README's images to
+# the thing that produces them. docs/screenshots.py produces them now, and
+# these tests keep the two lists from parting company again.
+
+SCREENSHOTS = ROOT / "docs" / "screenshots.py"
+
+
+def _generator():
+    """docs/screenshots.py as a module, without running it."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("netauto_screenshots", SCREENSHOTS)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def readme_images() -> set[str]:
+    """Every docs/<name>.png the README embeds."""
+    return set(re.findall(r"\]\(docs/([a-z0-9-]+)\.png\)", README.read_text()))
+
+
+def test_the_readme_embeds_screenshots_to_check():
+    assert len(readme_images()) > 5, "found almost no screenshots in the README"
+
+
+def test_every_embedded_screenshot_exists():
+    missing = sorted(n for n in readme_images()
+                     if not (ROOT / "docs" / f"{n}.png").exists())
+    assert not missing, f"the README embeds images that are not in docs/: {missing}"
+
+
+def test_the_generator_and_the_readme_agree_on_which_pages_are_shown():
+    """A screenshot nothing can regenerate is the one that goes stale.
+
+    Both directions matter. A README image with no page in the generator
+    cannot be refreshed; a page in the generator that the README never shows
+    is work nobody sees. The diagram export is neither -- it is drawn by
+    netauto.diagram, not photographed from the GUI.
+    """
+    drawn_not_photographed = {"netauto-lab-topology"}
+    generated = set(_generator().PAGES)
+    embedded = readme_images() - drawn_not_photographed
+
+    assert generated == embedded, (
+        f"only the README has: {sorted(embedded - generated)}; "
+        f"only docs/screenshots.py has: {sorted(generated - embedded)}. "
+        f"Add the page to PAGES, or embed the image, so every screenshot in "
+        f"the README is one `python docs/screenshots.py` can refresh."
+    )

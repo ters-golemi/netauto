@@ -196,8 +196,8 @@ Three multi-step pipelines per supported platform -- 36 in all, under
 the **Workflows** tab. They are per-platform because the useful part is the
 show-command set, and that does not generalise.
 
-![The Workflows tab: each platform lists both pipelines with every step named,
-how many inventory devices it would run against, and an optional tag
+![The Workflows tab: each platform lists all three pipelines with every step
+named, how many inventory devices it would run against, and an optional tag
 filter](docs/workflows.png)
 
 *Synthetic inventory. Each platform's card states its device count, and a
@@ -284,9 +284,10 @@ management IPs, a Tear down and an Audit this lab button](docs/lab.png)
 `mixed-vendor` (four vendors, needs VM images). The node addresses above are
 synthetic; the platform mapping and the page are real.*
 
-![The Lab audit results for the mixed-vendor lab: four tiles, then each node —
-juniper_junos, arista_eos, cisco_nxos, cisco_ios — with its rules, severities
-and verdicts, failures highlighted and the config line that decided each](docs/lab-audit.png)
+![The Lab audit results for the mixed-vendor lab: four tiles, then each node
+with its rules, severities and verdicts, failures highlighted and the config
+line that decided each — juniper_junos and arista_eos shown, cisco_nxos and
+cisco_ios below them on the page](docs/lab-audit.png)
 
 *Auditing the `mixed-vendor` lab: the same rules and finding layout the Audit
 page produces for managed devices, here across four vendors at once. Synthetic
@@ -399,7 +400,7 @@ and port labels already placed. draw.io reads and writes `.vsdx`, so that file
 is also the route to something editable in Visio.
 
 ![The Topology page after a collection: every link with both port names and
-whether one end or both reported it, the device that could not be asked, and
+whether one end or both reported it, the devices that could not be asked, and
 the neighbour with no inventory entry](docs/topology.png)
 
 *Synthetic graph. Note the last row — a neighbour LLDP reported that has no

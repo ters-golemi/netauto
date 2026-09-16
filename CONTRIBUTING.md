@@ -148,7 +148,25 @@ never met real hardware, and the README says so plainly. If your change adds
 something unverified, add it there; if you verify something against real gear,
 move it out and say what you ran it against.
 
-The test count appears in `README.md` and `INSTALL.md`. Update both.
+The GUI screenshots in `README.md` are generated, not taken by hand:
+
+```bash
+.venv/bin/python docs/screenshots.py            # all of them
+.venv/bin/python docs/screenshots.py audit lab  # just these
+```
+
+It renders the real templates against a synthetic inventory and canned driver
+output — no device is contacted — and needs `chromium` on PATH. Re-run it after
+any change to `netauto/web/templates/`, `netauto/web/static/style.css` or the
+navigation, and commit the PNGs with the change. They went a colour scheme and
+two navigation tabs out of date when this was a manual step.
+
+Adding a screenshot means adding its page to `PAGES` in that script *and*
+embedding it in the README; `tests/test_docs.py` fails if only one of those
+happens, so no image can end up with nothing able to refresh it.
+
+Do not pin a test count in `README.md` or `INSTALL.md`. Both used to carry one,
+both drifted, and `test_no_document_pins_a_test_count` now fails on either.
 
 Agent definitions in `agents/` are canonical, and `tests/test_agents.py` checks
 that installed copies have not drifted. After editing one:
