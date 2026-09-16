@@ -20,6 +20,58 @@ HPE Aruba (AOS-CX, AOS-Switch, Central), Cisco Meraki and Fortinet FortiOS.
 For a server install on Ubuntu — service user, systemd, TLS, firewall — follow
 [INSTALL.md](INSTALL.md). The quick start below is for a workstation.
 
+### Sizing the VM
+
+**Ubuntu 24.04 LTS.** Python **3.11 is a hard floor**: the Meraki SDK requires
+it, so `pip install` fails outright on anything older rather than degrading.
+That rules out 22.04 with its stock Python 3.10 unless you install a newer
+interpreter alongside it.
+
+| | Minimum | Room to grow | What actually uses it |
+|---|---|---|---|
+| vCPU | 1 | 2 | Work is I/O-bound — threads sit waiting on SSH, not computing. A second core keeps the UI responsive while a topology collection or a Word export is running. |
+| RAM | 2 GB | 4 GB | The service stays under 100 MB; the rest is headroom for concurrent sessions and in-memory run history. |
+| Disk | 5 GB | 10 GB | The venv is ~190 MB and the checkout ~11 MB. Everything else is Ubuntu itself and logs. |
+
+**The service is smaller than the VM.** With every driver imported and every
+page served it measures about 70 MB resident. Nothing is preallocated and
+there is no database — netauto's state is an inventory file, a users file and
+an append-only log.
+
+**What the headroom is actually for.** Two things scale with your fleet rather
+than with traffic:
+
+- **Concurrent device sessions.** Topology collection and the metrics collector
+  fan out to `max_concurrency` (default 8) sessions at once. Audits do not —
+  the Audit page walks its targets one at a time, so a large group takes longer
+  rather than more memory.
+- **Run history, held in memory on purpose.** Up to 20 workflow runs and 20 lab
+  jobs are kept, each carrying the full running configuration of every device it
+  touched. Those contain password hashes, community strings and key material,
+  and netauto keeps them off disk deliberately — the cost is RAM, and a restart
+  discards them.
+
+**Disk grows in one place.** `activity.log` is append-only JSON lines and
+nothing rotates it. On a busy server give it room, or add a logrotate rule.
+
+**Where the VM sits matters more than how big it is.** It needs reachability to
+the devices you intend to manage — ideally from a management VLAN rather than a
+general user network — and it holds device credentials in its environment.
+Anyone who can reach it with an account can read your network's configuration.
+Treat it as infrastructure, not as a convenience box.
+
+**Two things this VM is not sized for**, both deliberately:
+
+- **Bringing labs up.** The [Lab page](#labs-netlab) needs a hypervisor or
+  container runtime, device images, and privileges the hardened service user
+  does not have — that belongs on a separate lab host or a CI runner, and
+  [INSTALL.md](INSTALL.md) says why. *Auditing* a lab that is already up costs
+  this VM nothing extra: it reads the snapshot and connects read-only, exactly
+  as it does to managed gear.
+- **Grafana and Prometheus.** [Optional and separate](#metrics-and-grafana),
+  brought up with `docker compose`. Putting them on this VM means Docker on it
+  too, plus whatever retention you give the time series.
+
 ## Quick start
 
 ```bash

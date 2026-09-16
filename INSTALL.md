@@ -17,7 +17,9 @@ matters more than how you install it**. It needs:
 
 - Network reachability to the devices you intend to manage
 - Ideally a management VLAN rather than a general user network
-- 2 GB RAM, 1 vCPU, 5 GB disk — the venv is roughly 200 MB
+- 2 GB RAM, 1 vCPU, 5 GB disk — the venv is roughly 200 MB. See
+  [Sizing the VM](README.md#sizing-the-vm) for what drives each, and when to
+  give it more
 - `sudo` on the VM
 
 The server holds device credentials in its environment. Anyone who can reach
