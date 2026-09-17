@@ -212,6 +212,18 @@ COMMANDS: dict[str, tuple[str, ...]] = {
         "get system ha status",
         "diagnose sys uptime",
     ),
+    # show routing route reads the legacy routing engine. A firewall running
+    # the Advanced Routing Engine refuses it, which the runner reports as a
+    # per-command gap.
+    "paloalto_panos": (
+        "show system info",
+        "show config running",
+        "show interface all",
+        "show routing route",
+        "show high-availability all",
+        "show lldp neighbors all",
+        "show session info",
+    ),
     # No CLI. See the note above.
     "aruba_aoscx": (),
     "aruba_central": (),

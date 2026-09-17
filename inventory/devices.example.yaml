@@ -60,3 +60,10 @@ devices:
     vdom: root
     verify_tls: true
     tags: [security, edge]
+
+  # --- Palo Alto Networks ------------------------------------------------
+  - name: pa-edge-01
+    platform: paloalto_panos     # SSH CLI via netmiko
+    host: 10.0.0.253
+    credentials: PA_EDGE         # PA_EDGE_USERNAME, PA_EDGE_PASSWORD
+    tags: [security, edge]

@@ -1,7 +1,7 @@
 """CLI-only platforms via netmiko.
 
-Used where napalm has no driver: Aruba's AOS-Switch line and FortiGate's SSH
-CLI. Configuration retrieval is a plain show command, so the per-platform
+Used where napalm has no driver: Aruba's AOS-Switch line, FortiGate's SSH CLI
+and PAN-OS. Configuration retrieval is a plain show command, so the per-platform
 detail lives in two class attributes rather than in code.
 """
 
@@ -250,3 +250,64 @@ class FortinetCliDriver(NetmikoDriver):
         if any(w in out.lower() for w in ("invalid", "cannot", "not found", "fail", "error")):
             raise UpgradeError(f"{self.device.name}: device rejected the image. {out.strip()[:300]}")
         return out.strip() or f"{verb} started: {image} from {protocol}://{server}"
+
+
+class PanOsDriver(NetmikoDriver):
+    """Palo Alto Networks PAN-OS firewalls over the SSH CLI.
+
+    Netmiko turns on scripting mode and turns the pager off when it connects,
+    so show output arrives whole. The XML API returns structured data and
+    reaches Panorama, but it needs its own SDK; the CLI gets facts, config and
+    neighbours with only what is already installed.
+    """
+
+    device_type = "paloalto_panos"
+    # The brace-nested running config, as op mode prints it by default.
+    running_config_command = "show config running"
+    facts_command = "show system info"
+    # ntc-templates parses this one, and its field names are the ones
+    # NetmikoDriver.neighbors already picks from.
+    neighbors_command = "show lldp neighbors all"
+
+    #: show system info key -> fact name. Everything else it prints is left in
+    #: version_output rather than mapped on a guess.
+    _FACT_KEYS = {
+        "hostname": "hostname",
+        "model": "model",
+        "serial": "serial",
+        "sw-version": "os_version",
+        "family": "family",
+        "uptime": "uptime",
+        "ip-address": "management_ip",
+        "app-version": "app_version",
+        "threat-version": "threat_version",
+        "multi-vsys": "multi_vsys",
+    }
+
+    def _parse_facts(self, output: str) -> dict[str, Any]:
+        """Structured fields from `show system info`.
+
+        One "key: value" pair per line. Only the first colon splits, so
+        uptime ("12 days, 3:04:05") and mac-address keep theirs. PAN-OS prints
+        "unknown" for what it does not have -- the serial of an unlicensed
+        VM-Series, a public IP that was never learned -- and that is dropped
+        rather than reported as a serial number.
+
+        Written from PAN-OS documentation and the ntc-templates parser for the
+        same command, not from captured output: no PAN-OS device has met this
+        driver yet.
+        """
+        facts: dict[str, Any] = {}
+        for line in output.splitlines():
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            key, value = key.strip().lower(), value.strip()
+            name = self._FACT_KEYS.get(key)
+            if name and value and value.lower() != "unknown":
+                facts[name] = value
+        if "model" in facts:
+            # No vendor line in show system info, and every model this driver
+            # meets is a Palo Alto Networks one.
+            facts["vendor"] = "Palo Alto Networks"
+        return facts

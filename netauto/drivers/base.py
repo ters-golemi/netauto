@@ -22,6 +22,13 @@ READ_ALLOW: dict[str, tuple[str, ...]] = {
     "aruba": (r"show\b", r"display\b", r"ping\b", r"traceroute\b"),
     "fortinet": (r"get\b", r"show\b", r"diagnose\b", r"execute\s+ping\b",
                  r"execute\s+traceroute\b"),
+    # PAN-OS "test" is mostly active -- test vpn brings up a tunnel, test
+    # authentication sends a login to a server -- so only the policy and FIB
+    # lookups are allowed, which read tables and send nothing. "debug" is left
+    # out entirely: many debug commands switch logging or state on.
+    "paloalto": (r"show\b", r"ping\b", r"traceroute\b",
+                 r"test\s+(security-policy-match|nat-policy-match)\b",
+                 r"test\s+routing\s+fib-lookup\b"),
     "generic": (r"show\b", r"display\b", r"get\b", r"ping\b", r"traceroute\b"),
 }
 
@@ -51,6 +58,8 @@ def platform_family(platform: str) -> str:
     p = platform.lower()
     if "forti" in p:
         return "fortinet"
+    if "palo" in p or "panos" in p:
+        return "paloalto"
     if "junos" in p or p.startswith("juniper"):
         return "juniper"
     if "aruba" in p or "procurve" in p or "aoscx" in p:

@@ -29,7 +29,8 @@ INSTRUCTIONS = """\
 Multi-vendor network automation, read-only.
 
 Covers Cisco IOS/IOS-XE/NX-OS/IOS-XR, Juniper Junos, Arista EOS, HPE Aruba
-(AOS-CX, AOS-Switch, Central), Cisco Meraki and Fortinet FortiOS.
+(AOS-CX, AOS-Switch, Central), Cisco Meraki, Fortinet FortiOS and Palo Alto
+Networks PAN-OS.
 
 This server never changes a device. net_config_diff shows what a change would
 do; applying it is a human step. Commands passed to net_run_show are checked

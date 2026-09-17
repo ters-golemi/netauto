@@ -158,6 +158,7 @@ def test_a_generic_banner_guesses_nothing():
 
 def test_the_mac_vendor_is_the_fallback():
     assert adhoc.guess_platform(vendor="Hewlett Packard Enterprise") == "aruba_aoscx"
+    assert adhoc.guess_platform(vendor="Palo Alto Networks") == "paloalto_panos"
 
 
 def test_the_banner_beats_the_mac_vendor():

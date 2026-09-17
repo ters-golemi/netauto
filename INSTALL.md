@@ -533,7 +533,7 @@ and gated further by the driver's upgrade capability and a device-name
 confirmation. The Lab routes POST too, but they orchestrate ephemeral netlab
 infrastructure or read lab devices read-only, never a managed-device write.
 
-The vendor drivers for Cisco, Juniper, Aruba, Meraki and Fortinet are written
-against each SDK's documented API but have not been exercised against physical
-hardware. Expect to adjust response parsing on first contact with real gear —
+The vendor drivers for Cisco, Juniper, Aruba, Meraki, Fortinet and PAN-OS are
+written against each SDK's documented API but have not been exercised against
+physical hardware. Expect to adjust response parsing on first contact with real gear —
 budget time for that on your first device, not on your fiftieth.

@@ -56,6 +56,7 @@ PLATFORM_HINTS: tuple[tuple[str, str], ...] = (
     ("arista", "arista_eos"),
     ("fortigate", "fortinet_cli"),
     ("fortinet", "fortinet_cli"),
+    ("palo alto", "paloalto_panos"),
     ("procurve", "aruba_osswitch"),
     ("aruba", "aruba_aoscx"),
     ("hewlett", "aruba_aoscx"),

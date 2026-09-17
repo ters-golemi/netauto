@@ -122,6 +122,29 @@ def test_na101_detects_fortios_ntp_stanza():
     assert any("216.239.35.0" in e for e in findings["NA-101"].evidence)
 
 
+# PAN-OS nests NTP in an ntp-servers block. The existing "ntp ... server"
+# line pattern already matches both the block header and the address line, so
+# PAN-OS needed no new syntax -- though a header with no address would pass.
+PANOS_NTP_ON = """\
+deviceconfig {
+  system {
+    hostname fw-edge-01;
+    ntp-servers {
+      primary-ntp-server {
+        ntp-server-address 216.239.35.0;
+      }
+    }
+  }
+}
+"""
+
+
+def test_na101_passes_panos_ntp_block():
+    findings = _by_id(run_ruleset(BUILTIN, "fw", "paloalto", PANOS_NTP_ON, {}))
+    assert not findings["NA-101"].failed, findings["NA-101"].detail
+    assert "ntp-server-address 216.239.35.0;" in findings["NA-101"].evidence
+
+
 NO_NTP = """\
 config system global
     set hostname "x"

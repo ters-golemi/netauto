@@ -52,6 +52,8 @@ REGISTRY: dict[str, Callable[[], type["Driver"]]] = {
     # Fortinet
     "fortinet_fortios": _module("netauto.drivers.fortios_driver", "FortiOsDriver"),
     "fortinet_cli": _module("netauto.drivers.netmiko_driver", "FortinetCliDriver"),
+    # Palo Alto Networks
+    "paloalto_panos": _module("netauto.drivers.netmiko_driver", "PanOsDriver"),
 }
 
 

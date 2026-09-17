@@ -13,7 +13,8 @@ upgrade — a single, deliberately gated operation, off unless `allow_writes` is
 enabled.
 
 Covers Cisco (IOS, IOS-XE, NX-OS, IOS-XR), Juniper Junos, Arista EOS,
-HPE Aruba (AOS-CX, AOS-Switch, Central), Cisco Meraki and Fortinet FortiOS.
+HPE Aruba (AOS-CX, AOS-Switch, Central), Cisco Meraki, Fortinet FortiOS and
+Palo Alto Networks PAN-OS.
 
 ## Installing
 
@@ -167,10 +168,10 @@ export NETAUTO_WEB_HOST=0.0.0.0        # omit for localhost only
 ```
 
 ![The Overview page: four counts, the inventory broken down by vendor family
-and by tag, and the twelve platform strings that have drivers](docs/dashboard.png)
+and by tag, and the thirteen platform strings that have drivers](docs/dashboard.png)
 
 *Synthetic inventory. The counts are of what is in the inventory file; the
-twelve platforms are what netauto has drivers for, whether or not you run any.*
+thirteen platforms are what netauto has drivers for, whether or not you run any.*
 
 ![The Devices page: the inventory with each device's platform, guard family,
 address and tags, and an Inspect button per row](docs/devices.png)
@@ -521,6 +522,7 @@ number of seconds only if you do want a background sweep as well.
 | `meraki` | Cloud REST | meraki |
 | `fortinet_fortios` | REST | fortiosapi |
 | `fortinet_cli` | SSH CLI | netmiko |
+| `paloalto_panos` | SSH CLI | netmiko |
 
 Meraki and Aruba Central are cloud tenants, not boxes: an inventory entry is an
 organization or tenant, and neither has a CLI. `net_run_show` refuses on both
@@ -584,8 +586,8 @@ has never opened against a real device either: the target gate and the
 transient Device are covered, and everything past them is the same driver code
 as an inventory device, which is the code that has not met real gear. That includes the LLDP topology
 path: the graph assembly and draw.io output are covered by tests against
-captured neighbour tables, but no driver's `neighbors()` has met real gear. Cisco, Juniper, Aruba, Meraki and
-Fortinet paths need a first run against actual gear or a lab; expect to adjust
+captured neighbour tables, but no driver's `neighbors()` has met real gear. Cisco, Juniper, Aruba, Meraki,
+Fortinet and PAN-OS paths need a first run against actual gear or a lab; expect to adjust
 response parsing, particularly `aoscx_driver.get_config` and the Central
 endpoint paths, which vary by firmware and region.
 
