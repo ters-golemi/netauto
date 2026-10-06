@@ -18,17 +18,19 @@ JUNIPER = frozenset({"juniper"})
 ARUBA = frozenset({"aruba"})
 FORTINET = frozenset({"fortinet"})
 ACI = frozenset({"aci"})
+MERAKI = frozenset({"meraki"})
+CENTRAL = frozenset({"arubacentral"})
 
 #: Families the three vendor-neutral rules at the end can reach a verdict on.
 #: Every text-config family, plus ACI now that they know how to find NTP,
 #: syslog and SNMP in a policy export.
 #:
-#: The tenants and the cluster are absent on purpose. What their get_config
-#: returns is state -- an organization's networks and devices, a tenant's
-#: device inventory, a cluster's onboarded sites -- and none of it carries a
-#: time source, a log destination or a community string, so a verdict on those
-#: would be invented rather than measured. Each was reported as failing all
-#: three on exactly that non-evidence before they were scoped out.
+#: The tenants and the cluster are absent on purpose. These three rules read
+#: a time source, a log destination and a community string out of text, and no
+#: tenant export states them that way -- each was reported as failing all
+#: three on exactly that non-evidence before they were scoped out. Meraki and
+#: Central have their own rules over their own posture instead, which is where
+#: their equivalent of SNMP and session policy is actually judged.
 TEXT_CONFIG_FAMILIES = frozenset({
     "cisco", "juniper", "aruba", "fortinet", "paloalto", "generic", "aci",
 })
@@ -41,24 +43,12 @@ TEXT_CONFIG_FAMILIES = frozenset({
 #: judged. The same trap as a documented grep that matches no line and reads
 #: as "no commands were run".
 #:
-#: None of these is a permanent gap. Each would become a real ruleset by
-#: fetching the settings the platform does expose -- organization admins and
-#: SAML for Meraki, audit and authentication policy for Central, cluster NTP
-#: and remote logging for Nexus Dashboard -- which is a driver change first,
-#: since none of those endpoints is read today.
+#: Not a permanent gap. Meraki and Central left this table by having their
+#: drivers fetch the posture their APIs do expose, which is what the rules
+#: above read. Nexus Dashboard would leave it the same way -- by reading the
+#: cluster's own NTP and remote logging -- which is a driver change first,
+#: since neither endpoint is fetched today.
 NO_RULES_REASON: dict[str, str] = {
-    "meraki": (
-        "A Meraki entry is an organization, and its configuration export is "
-        "the organization's networks and devices -- inventory, not settings. "
-        "The hardening rules have nothing to read, so none is applied rather "
-        "than failing the org for settings the export does not describe."
-    ),
-    "arubacentral": (
-        "An Aruba Central entry is a tenant, and its configuration export is "
-        "the Central device inventory -- inventory, not settings. The "
-        "hardening rules have nothing to read, so none is applied rather than "
-        "judging the tenant by AOS-CX switch syntax, which it does not use."
-    ),
     "nexusdashboard": (
         "A Nexus Dashboard entry is a cluster, and its configuration export "
         "is the sites onboarded to it. It is a management platform rather "
@@ -266,6 +256,282 @@ def _aci_session_timeout(config: str, facts: dict) -> tuple[bool, str, tuple[str
     return True, "The APIC session lifetime is bounded.", tuple(
         f"pkiWebTokenData.webtokenTimeoutSeconds = {t.get('webtokenTimeoutSeconds')}"
         for t in tokens)[:1]
+
+
+# -- Cloud tenants: rules over an exported posture -------------------------
+#
+# A Meraki organization and a Central tenant have no configuration in the
+# device sense, but they do have a security posture their API will state:
+# login policy, SNMP, the admin list, user roles, the audit trail. The drivers
+# fetch those alongside the inventory and these rules judge them.
+#
+# The third verdict matters more here than anywhere else. An API key or token
+# carries its owner's access, so a section can be missing because the key
+# cannot read it rather than because the setting is off. Every rule below
+# returns None in that case, which reports the control as undetermined. The
+# alternative was tried by accident and was worse: before the families were
+# split, a Central tenant reported "Telnet server is disabled: PASS".
+
+
+def _dig(body: object, path: str) -> object:
+    """Follow a dotted path into nested dicts, or None if it is not there."""
+    current = body
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+@lru_cache(maxsize=4)
+def _tenant_doc(config: str) -> dict:
+    """A tenant export parsed once, shared by every rule in one audit."""
+    try:
+        doc = json.loads(config)
+    except (ValueError, TypeError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _tenant_section(config: str, name: str) -> tuple[object, str]:
+    """A named section of a tenant export, and why it is unusable if it is.
+
+    Returns (value, "") when the section is present and was fetched, and
+    (None, reason) when it is absent or the driver recorded a fetch error in
+    it. That reason becomes the skipped finding's detail, so it has to read as
+    an explanation on its own.
+    """
+    doc = _tenant_doc(config)
+    if name not in doc:
+        return None, f"the export carries no {name!r} section, so this was not checked."
+    value = doc[name]
+    if isinstance(value, dict) and value.get("_error"):
+        return None, (f"{name} could not be read, so this was not checked: "
+                      f"{value['_error']}")
+    return value, ""
+
+
+def _flag(section: str, path: str, *, ok: str, bad_detail: str, want: bool = True):
+    """Rule body: a boolean setting at a dotted path inside a section."""
+
+    def check(config: str, facts: dict) -> tuple[bool | None, str, tuple[str, ...]]:
+        body, why = _tenant_section(config, section)
+        if why:
+            return None, why, ()
+        value = _dig(body, path)
+        if value is None:
+            return None, (f"{section}.{path} is not in the export, so this was "
+                          f"not checked."), ()
+        evidence = (f"{section}.{path} = {value!s}",)
+        return (bool(value) is want, ok if bool(value) is want else bad_detail,
+                evidence)
+
+    return check
+
+
+def _enforced_limit(section: str, flag: str, value_key: str, ceiling: int, *,
+                    unit: str, ok: str, off_detail: str, loose_detail: str):
+    """Rule body: a limit that must be switched on and within a ceiling.
+
+    Two settings make one control -- Meraki states the enforcement and the
+    number separately, and an enforced timeout of a fortnight is not a
+    timeout. Checking only the flag would pass it.
+    """
+
+    def check(config: str, facts: dict) -> tuple[bool | None, str, tuple[str, ...]]:
+        body, why = _tenant_section(config, section)
+        if why:
+            return None, why, ()
+        enabled = _dig(body, flag)
+        if enabled is None:
+            return None, f"{section}.{flag} is not in the export, so this was not checked.", ()
+        if not enabled:
+            return False, off_detail, (f"{section}.{flag} = {enabled!s}",)
+        raw = _dig(body, value_key)
+        try:
+            number = int(str(raw))
+        except (TypeError, ValueError):
+            return None, (f"{section}.{flag} is on but {value_key} is "
+                          f"{raw!r}, which is not a number."), ()
+        evidence = (f"{section}.{value_key} = {number} {unit}",)
+        if number > ceiling:
+            return False, loose_detail.format(number=number, ceiling=ceiling), evidence
+        return True, ok, evidence
+
+    return check
+
+
+def _meraki_admin_two_factor(config: str, facts: dict) -> tuple[bool | None, str, tuple[str, ...]]:
+    """Every administrator with full organization access must carry 2FA.
+
+    Distinct from the organization-wide enforcement rule: enforcement can be
+    off while some admins have it anyway, and it can be on while an admin
+    added before it was switched on still does not. This reads the roster.
+    """
+    body, why = _tenant_section(config, "admins")
+    if why:
+        return None, why, ()
+    if not isinstance(body, list):
+        return None, "the admins section is not a list, so this was not checked.", ()
+    if not body:
+        return None, "the organization lists no administrators.", ()
+    exposed = tuple(
+        f"{a.get('name') or a.get('email') or '?'} ({a.get('email', 'no email')})"
+        for a in body
+        if isinstance(a, dict)
+        and str(a.get("orgAccess", "")).lower() == "full"
+        and not a.get("twoFactorAuthEnabled")
+    )
+    if exposed:
+        return (False,
+                "An administrator with full organization access has no second "
+                "factor; that account alone can change every network.",
+                exposed[:3])
+    full = [a for a in body if isinstance(a, dict)
+            and str(a.get("orgAccess", "")).lower() == "full"]
+    if not full:
+        return None, "no administrator holds full organization access.", ()
+    return True, "Every full-access administrator has two-factor enabled.", (
+        f"{len(full)} full-access admins, all with 2FA",)
+
+
+def _central_audit_trail(config: str, facts: dict) -> tuple[bool | None, str, tuple[str, ...]]:
+    """The trail must answer and actually hold events.
+
+    Reachability alone cannot fail -- the driver records an unreachable trail
+    as a fetch error, which is a skip, so a rule testing only that would be
+    one of the two useless kinds this ruleset's tests exist to catch. An
+    empty trail is the failure worth reporting: it means nothing is being
+    retained, so no administrative action in the tenant can be reviewed.
+    """
+    body, why = _tenant_section(config, "auditLog")
+    if why:
+        return None, why, ()
+    if not isinstance(body, dict):
+        return None, "the auditLog section is not an object, so this was not checked.", ()
+    count = body.get("total")
+    if count is None:
+        count = body.get("event_count")
+    try:
+        events = int(str(count))
+    except (TypeError, ValueError):
+        return None, (
+            "the audit trail answered but reported no event count, so "
+            "retention was not checked."
+        ), ()
+    evidence = (f"auditLog.total = {events}",)
+    if events <= 0:
+        return (False,
+                "The audit trail is empty, so administrative actions in this "
+                "tenant cannot be reviewed after the fact.",
+                evidence)
+    return True, "The tenant's audit trail answers and holds events.", evidence
+
+
+def _central_users(config: str) -> tuple[list | None, str]:
+    body, why = _tenant_section(config, "users")
+    if why:
+        return None, why
+    rows = body.get("users") if isinstance(body, dict) else body
+    if not isinstance(rows, list):
+        return None, "the users section is not a list, so this was not checked."
+    if not rows:
+        return None, "the tenant lists no users."
+    return [r for r in rows if isinstance(r, dict)], ""
+
+
+def _central_roles(user: dict) -> list[str]:
+    """Role names out of a Central user record, whatever shape it uses.
+
+    Central has moved this between releases and between the cloud and the
+    on-premises build, so several spellings are tried and an unrecognised
+    record contributes nothing rather than a guess. A rule that found no
+    roles at all reports itself undetermined instead of clearing the tenant.
+    """
+    roles: list[str] = []
+    applications = user.get("applications")
+    if isinstance(applications, list):
+        for app in applications:
+            if not isinstance(app, dict):
+                continue
+            role = app.get("role") or _dig(app, "info.role")
+            if isinstance(role, str) and role:
+                roles.append(role)
+    for key in ("role", "roles"):
+        value = user.get(key)
+        if isinstance(value, str) and value:
+            roles.append(value)
+        elif isinstance(value, list):
+            roles.extend(v for v in value if isinstance(v, str) and v)
+    return roles
+
+
+#: Role names that grant unrestricted administrative access in Central.
+_CENTRAL_SUPERUSER = {"admin", "administrator", "super admin", "superadmin",
+                      "global administrator", "account admin"}
+
+
+def _central_admin_scope(config: str, facts: dict) -> tuple[bool | None, str, tuple[str, ...]]:
+    """Least privilege: unrestricted admin should be the exception."""
+    users, why = _central_users(config)
+    if why:
+        return None, why, ()
+    recognised = 0
+    unrestricted: list[str] = []
+    for user in users:
+        roles = _central_roles(user)
+        if not roles:
+            continue
+        recognised += 1
+        name = (user.get("username") or user.get("user_name")
+                or user.get("email") or "unnamed user")
+        if any(r.strip().lower() in _CENTRAL_SUPERUSER for r in roles):
+            unrestricted.append(f"{name} = {', '.join(sorted(set(roles)))}")
+    if not recognised:
+        return None, (
+            "no role information in the user records this Central release "
+            "returns, so administrative scope was not checked."
+        ), ()
+    if unrestricted:
+        return (False,
+                f"{len(unrestricted)} of {recognised} users hold unrestricted "
+                f"administrative access to the tenant.",
+                tuple(unrestricted)[:3])
+    return True, "No user holds unrestricted administrative access.", (
+        f"{recognised} users, all scoped",)
+
+
+def _central_device_groups(config: str, facts: dict) -> tuple[bool | None, str, tuple[str, ...]]:
+    """A device in no group inherits no configuration policy."""
+    body, why = _tenant_section(config, "devices")
+    if why:
+        return None, why, ()
+    rows = body.get("devices") if isinstance(body, dict) else body
+    if not isinstance(rows, list) or not rows:
+        return None, "the tenant inventory is empty, so this was not checked.", ()
+    seen = 0
+    orphans: list[str] = []
+    for device in rows:
+        if not isinstance(device, dict):
+            continue
+        if "group_name" not in device and "group" not in device:
+            continue
+        seen += 1
+        group = device.get("group_name") or device.get("group")
+        if not str(group or "").strip():
+            orphans.append(str(device.get("serial") or device.get("macaddr") or "?"))
+    if not seen:
+        return None, (
+            "the inventory records carry no group field in this Central "
+            "release, so group assignment was not checked."
+        ), ()
+    if orphans:
+        return (False,
+                f"{len(orphans)} of {seen} devices are in no group, so they "
+                f"inherit no configuration policy from Central.",
+                tuple(orphans)[:3])
+    return True, "Every managed device is assigned to a group.", (
+        f"{seen} devices, all grouped",)
 
 
 def _time_source(config: str, facts: dict) -> tuple[bool, str, tuple[str, ...]]:
@@ -611,6 +877,113 @@ BUILTIN = Ruleset(
             check=_aci_session_timeout,
             remediation="Lower the web token timeout so an idle GUI or API session "
                         "expires within the hour.",
+        ),
+        # -- Cisco Meraki --------------------------------------------------
+        #
+        # The organization's own security posture, not its networks'. Each
+        # reports undetermined rather than failing when the API key could not
+        # read the section it needs.
+        Rule(
+            id="NA-050", title="Two-factor authentication is enforced",
+            severity="critical", families=MERAKI,
+            check=_flag(
+                "loginSecurity", "enforceTwoFactorAuth",
+                ok="Two-factor authentication is required of every dashboard admin.",
+                bad_detail="Two-factor authentication is not enforced; a leaked "
+                           "password is enough to reach every network in the org.",
+            ),
+            remediation="Enable two-factor authentication under Organization > "
+                        "Settings > Authentication, or front the dashboard with SSO.",
+        ),
+        Rule(
+            id="NA-051", title="Dashboard sessions time out",
+            severity="medium", families=MERAKI,
+            check=_enforced_limit(
+                "loginSecurity", "enforceIdleTimeout", "idleTimeoutMinutes", 60,
+                unit="minutes",
+                ok="Idle dashboard sessions expire within the hour.",
+                off_detail="No idle timeout is enforced, so a dashboard session "
+                           "left open stays authenticated indefinitely.",
+                loose_detail="The idle timeout is {number} minutes, longer than "
+                             "the {ceiling} this rule allows.",
+            ),
+            remediation="Enforce an idle timeout of 60 minutes or less under "
+                        "Organization > Settings > Authentication.",
+        ),
+        Rule(
+            id="NA-052", title="Accounts lock out after failed logins",
+            severity="medium", families=MERAKI,
+            check=_enforced_limit(
+                "loginSecurity", "enforceAccountLockout", "accountLockoutAttempts", 10,
+                unit="attempts",
+                ok="Accounts lock out after a bounded number of failed attempts.",
+                off_detail="No account lockout is enforced, so dashboard passwords "
+                           "can be guessed without limit.",
+                loose_detail="Lockout allows {number} failed attempts, more than "
+                             "the {ceiling} this rule allows.",
+            ),
+            remediation="Enforce account lockout after 10 attempts or fewer under "
+                        "Organization > Settings > Authentication.",
+        ),
+        Rule(
+            id="NA-053", title="SNMP v2c is not enabled",
+            severity="high", families=MERAKI,
+            check=_flag(
+                "snmp", "v2cEnabled", want=False,
+                ok="SNMP v2c is off; polling uses v3 or nothing.",
+                bad_detail="SNMP v2c is enabled, and its community string is a "
+                           "password sent in clear text over the internet.",
+            ),
+            remediation="Disable v2c and use SNMP v3 with authentication and "
+                        "privacy under Organization > Settings.",
+        ),
+        Rule(
+            id="NA-054", title="API keys are restricted by source address",
+            severity="medium", families=MERAKI,
+            check=_flag(
+                "loginSecurity", "apiAuthentication.ipRestrictionsForKeys.enabled",
+                ok="API keys are usable only from the listed source addresses.",
+                bad_detail="API keys carry full organization access and are not "
+                           "restricted by source address, so a leaked key works "
+                           "from anywhere on the internet.",
+            ),
+            remediation="List the addresses your automation calls from under "
+                        "Organization > Settings > API & webhooks.",
+        ),
+        Rule(
+            id="NA-055", title="Full-access administrators carry a second factor",
+            severity="high", families=MERAKI,
+            check=_meraki_admin_two_factor,
+            remediation="Require two-factor on every full-access account, or "
+                        "reduce the account to the networks it actually needs.",
+        ),
+        # -- HPE Aruba Central ---------------------------------------------
+        #
+        # Thinner than Meraki by necessity: Central exposes no single
+        # tenant-wide security-settings object, so these read the user roster,
+        # the audit trail and the inventory. Each skips rather than guesses
+        # when the payload is not the shape it expects, because Central has
+        # moved these between releases and between cloud and on-premises.
+        Rule(
+            id="NA-060", title="The audit trail holds events",
+            severity="medium", families=CENTRAL,
+            check=_central_audit_trail,
+            remediation="Grant the API token the audit-log scope, and export the "
+                        "trail to a collector the tenant's own admins cannot edit.",
+        ),
+        Rule(
+            id="NA-061", title="Administrative access is scoped",
+            severity="high", families=CENTRAL,
+            check=_central_admin_scope,
+            remediation="Replace unrestricted admin roles with the narrowest role "
+                        "that covers the work, per application and group.",
+        ),
+        Rule(
+            id="NA-062", title="Every managed device is assigned to a group",
+            severity="medium", families=CENTRAL,
+            check=_central_device_groups,
+            remediation="Move unassigned devices into a group so they inherit a "
+                        "reviewed configuration rather than none.",
         ),
         # -- Vendor-neutral --------------------------------------------------
         Rule(

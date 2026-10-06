@@ -302,15 +302,77 @@ def test_no_aruba_switch_rule_is_aimed_at_a_central_tenant():
         assert not rule.applies_to("arubacentral"), f"{rule.id} still judges Central"
 
 
-def test_a_tenant_inventory_export_is_judged_by_nothing():
-    """Zero rules, not three failures invented from an inventory listing."""
+def test_an_inventory_only_export_is_undetermined_not_failed():
+    """The tenants have rules now, and an inventory-only export answers none.
+
+    This is the property that keeps the rules honest. An export without the
+    posture sections -- an API key that could not read them, an older driver --
+    must skip every rule rather than fail it. Failing would be an alarm on
+    evidence nobody gathered; passing would be worse.
+    """
     for family, config in (("meraki", MERAKI_EXPORT),
                            ("arubacentral", CENTRAL_EXPORT)):
         findings = run_ruleset(BUILTIN, "tenant", family, config, {})
-        assert findings == [], (
-            f"{family} was judged by rules it cannot answer: "
-            f"{[f.rule_id for f in findings]}"
+        assert findings, f"{family} should have rules by now"
+        assert all(f.status == "skip" for f in findings), (
+            f"{family} reached a verdict with no posture to read: "
+            f"{[(f.rule_id, f.status) for f in findings]}"
         )
+        for f in findings:
+            assert f.detail, f"{f.rule_id} skipped without saying why"
+
+
+def test_a_section_the_key_could_not_read_is_skipped_not_failed():
+    """The driver records a fetch error in the section; that is not a verdict.
+
+    A key scoped to one network cannot read organization login security. The
+    control is then undetermined, not off -- this is the distinction the
+    engine's third status exists for.
+    """
+    denied = json.dumps({
+        "networks": [], "devices": [],
+        "loginSecurity": {"_error": "APIError: 403 Forbidden"},
+        "snmp": {"_error": "APIError: 403 Forbidden"},
+        "admins": {"_error": "APIError: 403 Forbidden"},
+    })
+    findings = run_ruleset(BUILTIN, "meraki-org", "meraki", denied, {})
+    assert findings and all(f.status == "skip" for f in findings)
+    assert any("403" in f.detail for f in findings), (
+        "the skip should carry the reason the section was unreadable"
+    )
+    assert not any(f.failed for f in findings)
+
+
+def test_a_real_posture_export_reaches_real_verdicts():
+    """And the opposite: given the posture, the rules do decide."""
+    hardened = json.dumps({
+        "networks": [], "devices": [],
+        "loginSecurity": {
+            "enforceTwoFactorAuth": True,
+            "enforceIdleTimeout": True, "idleTimeoutMinutes": 30,
+            "enforceAccountLockout": True, "accountLockoutAttempts": 5,
+            "apiAuthentication": {"ipRestrictionsForKeys": {"enabled": True}},
+        },
+        "snmp": {"v2cEnabled": False, "v3Enabled": True},
+        "admins": [{"name": "Ops", "email": "ops@example.net",
+                    "orgAccess": "full", "twoFactorAuthEnabled": True}],
+    })
+    findings = run_ruleset(BUILTIN, "meraki-org", "meraki", hardened, {})
+    assert all(f.status == "pass" for f in findings), (
+        f"a hardened org should pass: "
+        f"{[(f.rule_id, f.status, f.detail) for f in findings if f.status != 'pass']}"
+    )
+
+    sloppy = json.loads(hardened)
+    sloppy["loginSecurity"]["enforceTwoFactorAuth"] = False
+    sloppy["snmp"]["v2cEnabled"] = True
+    sloppy["admins"][0]["twoFactorAuthEnabled"] = False
+    by_id = {f.rule_id: f for f in
+             run_ruleset(BUILTIN, "org", "meraki", json.dumps(sloppy), {})}
+    assert by_id["NA-050"].status == "fail"
+    assert by_id["NA-053"].status == "fail"
+    assert by_id["NA-055"].status == "fail"
+    assert "ops@example.net" in by_id["NA-055"].evidence[0]
 
 
 def test_every_family_without_rules_explains_itself():
@@ -348,11 +410,11 @@ def test_the_reason_reaches_the_report_only_when_there_is_nothing_to_show():
 
     original = audit_mod.connect
     try:
-        audit_mod.connect = lambda dev, settings: _Driver(MERAKI_EXPORT)
-        report = audit_device(Device(name="org", platform="meraki"),
+        audit_mod.connect = lambda dev, settings: _Driver('{"sites": []}')
+        report = audit_device(Device(name="nd", platform="cisco_nexus_dashboard"),
                               Settings(inventory_path="unused"))
         assert report["findings"] == []
-        assert "organization" in report["no_rules_reason"]
+        assert "cluster" in report["no_rules_reason"]
 
         audit_mod.connect = lambda dev, settings: _Driver(ACI_EXPORT)
         report = audit_device(Device(name="fab", platform="cisco_aci"),

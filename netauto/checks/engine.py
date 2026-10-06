@@ -46,8 +46,16 @@ class Rule:
     severity: Severity
     #: Platform families this applies to; empty means all.
     families: frozenset[str] = frozenset()
-    #: Called with (config_text, facts) -> (passed, detail, evidence)
-    check: Callable[[str, dict], tuple[bool, str, tuple[str, ...]]] = field(
+    #: Called with (config_text, facts) -> (passed, detail, evidence).
+    #:
+    #: passed may be None, which reports the rule as skipped rather than
+    #: passed or failed. That is for a control the rule genuinely could not
+    #: read -- an API key without the scope to fetch the setting, a section
+    #: the platform did not return -- as distinct from one it read and found
+    #: switched off. Collapsing the two is how an audit invents a verdict:
+    #: fail and it is a false alarm on evidence nobody gathered, pass and it
+    #: is false assurance, which is worse.
+    check: Callable[[str, dict], tuple[bool | None, str, tuple[str, ...]]] = field(
         default=lambda cfg, facts: (True, "", ())
     )
     remediation: str = ""
@@ -87,9 +95,11 @@ def run_ruleset(
     for rule in ruleset.for_family(family):
         try:
             passed, detail, evidence = rule.check(config, facts)
-            status: Status = "pass" if passed else "fail"
+            # None is "could not determine", which is neither a pass nor a
+            # failure. See Rule.check.
+            status: Status = "skip" if passed is None else ("pass" if passed else "fail")
         except Exception as exc:  # a broken rule must not abort the audit
-            passed, detail, evidence, status = False, f"rule error: {exc}", (), "skip"
+            detail, evidence, status = f"rule error: {exc}", (), "skip"
         findings.append(
             Finding(
                 rule_id=rule.id,

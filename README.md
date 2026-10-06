@@ -584,26 +584,50 @@ when nothing says it is, because an export taken with
 missing object means "not configured here", which for a security control is
 the thing worth reporting.
 
-### The tenants and the cluster get no rules, deliberately
+### The cloud tenants, whose configuration is an exported posture
 
-Meraki, Aruba Central and Nexus Dashboard each have a family of their own and
-no rules in it. What their configuration export returns is state — an
-organization's networks and devices, a tenant's device inventory, a cluster's
-onboarded sites — and none of it carries a time source, a log destination or a
-community string. Before they were scoped out, each was failed for all three
-on exactly that non-evidence, and Central was additionally judged by AOS-CX
-switch syntax because its platform string contains "aruba".
+A Meraki organization and a Central tenant have no configuration in the device
+sense, but they do have a security posture their API will state, so the
+drivers fetch it alongside the inventory and `get_config` returns both. That
+is what makes them auditable: the inventory says what the tenant owns, not how
+it is secured.
 
-Zero rules is reported, not rendered blank: an empty findings table reads as a
-clean bill of health, which is the opposite of what it means. The Audit page
-and `net_audit` carry a `no_rules_reason` instead, naming what the export does
-contain and where to look for the thing you wanted audited.
+**Meraki** reads the organization's login policy, SNMP settings, administrator
+roster and SAML configuration — the cloud equivalent of the AAA and
+management-plane stanzas the text rules read on a switch. The rules cover
+two-factor enforcement, dashboard idle timeout, account lockout, SNMP v2c,
+source-address restriction on API keys, and whether every full-access admin
+actually carries a second factor. The last is deliberately separate from the
+first: enforcement can be on while an account added before it was switched on
+still has none.
 
-None of the three is a permanent gap. Each becomes a real ruleset by reading
-the settings the platform does expose — organization admins and SAML for
-Meraki, audit and authentication policy for Central, cluster NTP and remote
-logging for Nexus Dashboard — and that is a driver change first, since none of
-those endpoints is fetched today.
+**Central** is thinner by necessity — it exposes no single tenant-wide
+security-settings object — so its rules read the user roster, the audit trail
+and the inventory: whether administrative access is scoped rather than
+unrestricted, whether the audit trail holds events at all, and whether every
+managed device is in a group, since one in no group inherits no reviewed
+configuration.
+
+**A third verdict.** An API key or token carries its owner's access, so a
+section can be missing because the key cannot read it rather than because the
+setting is off. Those two must not collapse: fail and it is an alarm on
+evidence nobody gathered; pass and it is false assurance, which is worse. A
+rule may therefore return `None`, reported as **skipped** with the reason — a
+403, or a field this release does not return — rather than a verdict. Central
+leans on this hardest, because it has moved these payload shapes between
+releases and between the cloud and on-premises builds.
+
+That makes a new failure mode possible: a rule whose field name is wrong skips
+forever and looks exactly like a well-run tenant. `tests/test_vendor_rules.py`
+pins it down — every rule over a structured export is fired against a payload
+built to satisfy it and one built to violate it, and is required to reach a
+real verdict on both.
+
+Nexus Dashboard still gets no rules: its export is the sites onboarded to the
+cluster and carries none of these settings. Zero is reported rather than
+rendered blank, since an empty findings table reads as a clean bill of health —
+the Audit page and `net_audit` carry a `no_rules_reason` naming what the export
+does contain and where to look instead.
 
 ![The Audit page for one switch: four tiles, then every rule with its severity,
 verdict and the configuration line that decided it — failures sorted to the top,

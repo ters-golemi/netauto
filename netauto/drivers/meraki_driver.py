@@ -85,23 +85,53 @@ class MerakiDriver(Driver):
             "models": models,
         }
 
+    def _section(self, name: str, fetch: Any) -> Any:
+        """One part of the export, or a marker saying why it is missing.
+
+        An API key carries its admin's access, so a key scoped to one network
+        can read the inventory and not the organization's security settings.
+        That must not sink the whole export, and it must not look like a
+        setting that is switched off either -- the compliance rules read this
+        marker and report the control as undetermined rather than failing it
+        on evidence nobody could gather.
+        """
+        try:
+            return fetch()
+        except Exception as exc:
+            return {"_error": f"{type(exc).__name__}: {exc}"}
+
     def get_config(self, kind: str = "running") -> str:
-        """Meraki has no text config; this returns the org's device and network state."""
+        """Meraki has no text config; this returns the org's state and posture.
+
+        The inventory alone cannot be audited -- it says what the org owns,
+        not how it is secured -- so the organization-wide security settings
+        come with it: dashboard login policy, SNMP, the admin list and the
+        SAML configuration. Those are the Meraki equivalent of the AAA and
+        management-plane stanzas the text rules read on a switch, and they are
+        what netauto/checks/builtin.py judges.
+        """
         if kind != "running":
             raise DriverError(f"Meraki exposes current state only, not {kind!r}.")
         dashboard = self._require()
         org_id = self._org_id()
+        orgs = dashboard.organizations
         try:
-            payload = {
-                "networks": dashboard.organizations.getOrganizationNetworks(
-                    org_id, total_pages="all"
-                ),
-                "devices": dashboard.organizations.getOrganizationDevices(
-                    org_id, total_pages="all"
-                ),
+            payload: dict[str, Any] = {
+                "networks": orgs.getOrganizationNetworks(org_id, total_pages="all"),
+                "devices": orgs.getOrganizationDevices(org_id, total_pages="all"),
             }
         except Exception as exc:
             raise DriverError(f"{self.device.name}: Meraki export failed: {exc}") from exc
+        # Posture, each part fetched independently so one missing scope costs
+        # one verdict rather than the export.
+        payload["loginSecurity"] = self._section(
+            "loginSecurity", lambda: orgs.getOrganizationLoginSecurity(org_id))
+        payload["snmp"] = self._section(
+            "snmp", lambda: orgs.getOrganizationSnmp(org_id))
+        payload["admins"] = self._section(
+            "admins", lambda: orgs.getOrganizationAdmins(org_id))
+        payload["saml"] = self._section(
+            "saml", lambda: orgs.getOrganizationSaml(org_id))
         return json.dumps(payload, indent=2, sort_keys=True, default=str)
 
     def run_read(self, command: str) -> str:

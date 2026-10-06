@@ -80,11 +80,48 @@ class ArubaCentralDriver(Driver):
             "device_count": total,
         }
 
+    def _section(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """One part of the export, or a marker saying why it is missing.
+
+        A Central token is scoped to the roles its user holds, so one that can
+        read the device inventory may not reach user management. That must not
+        sink the export, and it must not read as a setting that is switched
+        off either -- the compliance rules treat this marker as undetermined
+        rather than failing a control nobody could look at.
+        """
+        try:
+            return self._call(path, params)
+        except Exception as exc:
+            return {"_error": f"{type(exc).__name__}: {exc}"}
+
     def get_config(self, kind: str = "running") -> str:
+        """The tenant's inventory, plus the posture that can be audited.
+
+        The inventory alone says what the tenant manages, not how it is
+        governed, so the user list and the audit trail come with it. Central
+        exposes considerably less of this than Meraki does -- there is no
+        single tenant-wide security-settings object -- so the rules over it
+        are correspondingly fewer, and each reports itself undetermined rather
+        than guessing when the payload is not the shape it expects.
+        """
         if kind != "running":
-            raise DriverError(f"Central exposes its device inventory only, not {kind!r}.")
+            raise DriverError(f"Central exposes current tenant state only, not {kind!r}.")
         data = self._call("platform/device_inventory/v1/devices", {"limit": 1000})
-        return json.dumps(data, indent=2, sort_keys=True, default=str)
+        payload: dict[str, Any] = {"devices": data}
+        payload["users"] = self._section("platform/rbac/v1/users", {"limit": 100})
+        # Only that the trail answers and carries events; the events
+        # themselves are not configuration and are not exported here.
+        audit = self._section("platform/auditlogs/v1/logs", {"limit": 1})
+        if isinstance(audit, dict) and "_error" in audit:
+            payload["auditLog"] = audit
+        else:
+            events = audit.get("audit_logs") if isinstance(audit, dict) else audit
+            payload["auditLog"] = {
+                "reachable": True,
+                "event_count": len(events) if isinstance(events, list) else None,
+                "total": audit.get("total") if isinstance(audit, dict) else None,
+            }
+        return json.dumps(payload, indent=2, sort_keys=True, default=str)
 
     def run_read(self, command: str) -> str:
         raise DriverError(

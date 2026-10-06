@@ -166,6 +166,64 @@ ACI_CASES: list[tuple[str, str, str]] = [
 CASES += ACI_CASES
 
 
+# -- the cloud tenants, whose configuration is an exported posture ---------
+#
+# Same idea as the ACI cases: the fixture is the shape the driver builds, so a
+# rule reading a field the export does not actually carry fails here rather
+# than silently skipping forever against a real tenant.
+
+
+def _org(**sections: object) -> str:
+    """A Meraki organization export carrying these posture sections."""
+    return json.dumps({"networks": [], "devices": [], **sections})
+
+
+def _tenant(**sections: object) -> str:
+    """A Central tenant export carrying these sections."""
+    return json.dumps({"devices": [], **sections})
+
+
+TENANT_CASES: list[tuple[str, str, str]] = [
+    ("NA-050",
+     _org(loginSecurity={"enforceTwoFactorAuth": True}),
+     _org(loginSecurity={"enforceTwoFactorAuth": False})),
+    ("NA-051",
+     _org(loginSecurity={"enforceIdleTimeout": True, "idleTimeoutMinutes": 30}),
+     _org(loginSecurity={"enforceIdleTimeout": False, "idleTimeoutMinutes": 30})),
+    ("NA-052",
+     _org(loginSecurity={"enforceAccountLockout": True, "accountLockoutAttempts": 5}),
+     _org(loginSecurity={"enforceAccountLockout": True, "accountLockoutAttempts": 99})),
+    ("NA-053",
+     _org(snmp={"v2cEnabled": False, "v3Enabled": True}),
+     _org(snmp={"v2cEnabled": True})),
+    ("NA-054",
+     _org(loginSecurity={"apiAuthentication":
+                         {"ipRestrictionsForKeys": {"enabled": True}}}),
+     _org(loginSecurity={"apiAuthentication":
+                         {"ipRestrictionsForKeys": {"enabled": False}}})),
+    ("NA-055",
+     _org(admins=[{"name": "Ops", "email": "ops@example.net",
+                   "orgAccess": "full", "twoFactorAuthEnabled": True}]),
+     _org(admins=[{"name": "Ops", "email": "ops@example.net",
+                   "orgAccess": "full", "twoFactorAuthEnabled": False}])),
+    ("NA-060",
+     _tenant(auditLog={"reachable": True, "total": 4210}),
+     _tenant(auditLog={"reachable": True, "total": 0})),
+    ("NA-061",
+     _tenant(users={"users": [{"username": "ops",
+                               "applications": [{"name": "nms",
+                                                 "role": "read_only"}]}]}),
+     _tenant(users={"users": [{"username": "ops",
+                               "applications": [{"name": "nms",
+                                                 "role": "admin"}]}]})),
+    ("NA-062",
+     _tenant(devices=[{"serial": "CN0001", "group_name": "branch-sites"}]),
+     _tenant(devices=[{"serial": "CN0001", "group_name": ""}])),
+]
+
+CASES += TENANT_CASES
+
+
 def test_every_new_rule_has_a_case():
     """A rule added without a case here is a rule nobody has fired."""
     covered = {rule_id for rule_id, _, _ in CASES}
@@ -173,19 +231,43 @@ def test_every_new_rule_has_a_case():
     assert not missing, f"vendor rules with no test case: {sorted(missing)}"
 
 
-def test_every_aci_rule_has_a_case():
-    """The same bar for the ACI family, which has no text config to eyeball.
+#: Families whose rules read a structured export rather than config text.
+STRUCTURED = ("aci", "meraki", "arubacentral")
 
-    A policy-model rule is easier to get silently wrong than a line match: a
-    mistyped class name finds nothing, which looks exactly like a compliant
-    fabric. Both directions are the only thing that tells them apart.
+
+@pytest.mark.parametrize("family", STRUCTURED)
+def test_every_structured_export_rule_has_a_case(family):
+    """The same bar for the families with no text config to eyeball.
+
+    A rule over a structured export is easier to get silently wrong than a
+    line match: a mistyped class name or field finds nothing, which looks
+    exactly like a compliant fabric or a well-run tenant. Both directions are
+    the only thing that tells them apart.
     """
     covered = {rule_id for rule_id, _, _ in CASES}
-    aci_rules = {r.id for r in VENDOR.rules if r.applies_to("aci")}
-    assert aci_rules, "no rules apply to the aci family"
-    assert not aci_rules - covered, (
-        f"ACI rules with no test case: {sorted(aci_rules - covered)}"
+    rules = {r.id for r in VENDOR.rules if r.applies_to(family)}
+    assert rules, f"no rules apply to the {family} family"
+    assert not rules - covered, (
+        f"{family} rules with no test case: {sorted(rules - covered)}"
     )
+
+
+@pytest.mark.parametrize("rule_id,good,bad", TENANT_CASES + ACI_CASES)
+def test_a_structured_rule_never_skips_on_a_payload_it_understands(rule_id, good, bad):
+    """Skip is for a control that could not be read, not one that was.
+
+    A rule whose field name is wrong skips on both fixtures and would still
+    satisfy the accept/reject tests above if those only checked truthiness.
+    This pins the third status down: given a payload carrying the field, the
+    verdict must be a real one.
+    """
+    for config, expected in ((good, True), (bad, False)):
+        passed, detail, _ = RULES[rule_id].check(config, {})
+        assert passed is not None, (
+            f"{rule_id} could not read a payload built for it, which means the "
+            f"field it looks for is not the one the fixture carries: {detail}"
+        )
+        assert passed is expected, f"{rule_id}: {detail}"
 
 
 @pytest.mark.parametrize("rule_id,good,_bad", [(r, g, b) for r, g, b in CASES])

@@ -563,7 +563,7 @@ def test_discover_topologies_ignores_netlab_generated_files(tmp_path):
     assert found == ["topology.yml"], found
 
 
-def test_the_audit_page_explains_a_tenant_with_no_rules(client, monkeypatch):
+def test_the_audit_page_explains_a_platform_with_no_rules(client, monkeypatch):
     """Zero rules must render as a statement, never as an empty table.
 
     An empty findings table reads as a clean bill of health. This asserts the
@@ -575,20 +575,21 @@ def test_the_audit_page_explains_a_tenant_with_no_rules(client, monkeypatch):
     from netauto.inventory import Device, Inventory
     import netauto.web.app as app_mod
 
-    org = Device(name="meraki-org", platform="meraki")
+    nd = Device(name="nd-01", platform="cisco_nexus_dashboard")
     monkeypatch.setattr(app_mod, "load_context",
-                        lambda: (Settings(inventory_path="unused"), Inventory([org])))
+                        lambda: (Settings(inventory_path="unused"), Inventory([nd])))
 
     def fake_audit(device, settings, ruleset=None):
-        return {"device": "meraki-org", "platform": "meraki", "facts": {},
+        return {"device": "nd-01", "platform": "cisco_nexus_dashboard", "facts": {},
                 "config_lines": 3, "summary": {"pass": 0, "fail": 0, "skip": 0},
-                "findings": [], "no_rules_reason": NO_RULES_REASON["meraki"]}
+                "findings": [],
+                "no_rules_reason": NO_RULES_REASON["nexusdashboard"]}
 
     monkeypatch.setattr(app_mod, "audit_device", fake_audit)
     _login(client)
-    page = client.get("/audit?device=meraki-org").text
+    page = client.get("/audit?device=nd-01").text
     assert "No rules apply" in page
-    assert "an organization" in page
+    assert "a cluster" in page
     assert "An empty table" in page
     assert "<th>Severity</th>" not in page, (
         "the findings table rendered for a device nothing judged"
