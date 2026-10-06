@@ -12,7 +12,8 @@ from ntc_templates.parse import parse_output
 from netauto.config import Settings
 from netauto.drivers import get_driver_class
 from netauto.drivers.netmiko_driver import FortinetCliDriver, PanOsDriver
-from netauto.errors import DriverError
+from netauto.drivers.base import assert_read_only
+from netauto.errors import DriverError, UnsafeCommand
 from netauto.inventory import Device
 
 
@@ -483,5 +484,25 @@ def test_nxapi_keeps_the_cisco_guard_family():
     """A new platform string that fell through to "generic" would widen the guard."""
     from netauto.drivers.base import platform_family
 
-    for platform in ("cisco_nxos_api", "cisco_aci", "cisco_nexus_dashboard"):
-        assert platform_family(platform) == "cisco", platform
+    # NX-API reaches the same NX-OS CLI, so it is policed as Cisco.
+    assert platform_family("cisco_nxos_api") == "cisco"
+
+
+def test_the_controllers_are_not_policed_as_ios_devices():
+    """Both controller strings start with "cisco" and neither speaks IOS.
+
+    This asserted "cisco" for all three when the drivers landed, and that was
+    wrong in two ways at once: it let the IOS compliance rules judge a policy
+    export, and it told the command guard that a platform with no CLI accepts
+    show commands. The family is the configuration language, not the vendor.
+    """
+    from netauto.drivers.base import READ_ALLOW, platform_family
+
+    for platform, family in (("cisco_aci", "aci"),
+                             ("cisco_nexus_dashboard", "nexusdashboard")):
+        assert platform_family(platform) == family
+        # Known to the guard, and known to permit nothing.
+        assert family in READ_ALLOW
+        assert READ_ALLOW[family] == ()
+        with pytest.raises(UnsafeCommand):
+            assert_read_only("show version", platform)

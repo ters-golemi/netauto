@@ -547,20 +547,46 @@ to take where SSH is closed off or structured JSON beats scraped text.
 
 ## Compliance rules
 
-15 rules in `netauto/checks/builtin.py`, scoped by platform family so a Junos
-config is never judged by IOS syntax: telnet exposure, SSH version, cleartext
-management, password encryption, enable secrets, session timeouts, root-login
-policy, default SNMP communities, time sources, remote logging. This is what
-the Audit page and the Prometheus metrics evaluate.
+`netauto/checks/builtin.py` holds the hardening set, scoped by platform family
+so a Junos config is never judged by IOS syntax: telnet exposure, SSH version,
+cleartext management, password encryption, enable secrets, session timeouts,
+root-login policy, default SNMP communities, time sources, remote logging.
+This is what the Audit page and the Prometheus metrics evaluate.
 
-`netauto/checks/vendor.py` adds 15 more for the workflows -- AAA, legacy
+`netauto/checks/vendor.py` adds more for the workflows -- AAA, legacy
 services, management ACLs, BPDU guard, log timestamps, banners, Junos web
 management and idle timeouts, Aruba loop protection, FortiOS trusted hosts and
-remote logging, and writable SNMP -- and gives all 30 a `reference`, so a
+remote logging, and writable SNMP -- and gives every rule a `reference`, so a
 recommendation can be traced to the guide it came from rather than read as an
 opinion. `BUILTIN` itself carries none; the annotation is applied where the
 workflows read the rules, which is why the Audit page and the metrics keep
 evaluating exactly what they did before.
+
+### ACI, where the configuration is a policy tree
+
+ACI has no text configuration, so a line search finds nothing and every text
+rule would fail on an absence it never measured — which is exactly what
+happened when the ACI driver first landed: `cisco_aci` fell through to the
+Cisco family because the string starts with "cisco", and auditing a fabric
+reported six failures, among them a missing enable secret on a platform that
+has no such thing. ACI is its own family now, and the rules read managed
+objects out of the policy export instead: telnet and HTTP admin state, local
+password strength, remote AAA providers, VRF contract enforcement, COOP strict
+mode, fabric-wide subnet checking, the pre-login banner, the TLS versions the
+APIC still offers, and the web token timeout. The vendor-neutral three learned
+ACI's spelling too — `datetimeNtpProv`, `syslogRemoteDest`, `snmpCommunityP`.
+
+Two conventions keep that readable alongside the text rules. A control that
+must be **off** passes when nothing says it is on, so an object missing from
+the export is not held against the fabric. A control that must be **on** fails
+when nothing says it is, because an export taken with
+`rsp-prop-include=config-only` omits properties left at their default — a
+missing object means "not configured here", which for a security control is
+the thing worth reporting.
+
+Nexus Dashboard gets no rules at all, deliberately. Its configuration export
+is cluster state and carries none of these settings, so every verdict would be
+invented rather than measured.
 
 ![The Audit page for one switch: four tiles, then every rule with its severity,
 verdict and the configuration line that decided it — failures sorted to the top,

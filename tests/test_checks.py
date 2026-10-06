@@ -155,3 +155,111 @@ end
 def test_na101_fails_when_no_ntp():
     findings = _by_id(run_ruleset(BUILTIN, "fsw", "fortinet", NO_NTP, {}))
     assert findings["NA-101"].failed
+
+
+# -- ACI is not an IOS device ----------------------------------------------
+#
+# This is a regression test for a real fault, not a hypothetical. When the ACI
+# driver landed, cisco_aci fell through platform_family's Cisco branch because
+# the string starts with "cisco", so auditing a fabric ran the IOS ruleset
+# against a JSON policy export and reported six failures -- among them "An
+# enable secret is set" at high severity, for a platform that has no enable
+# secret, no exec-timeout and no VTY lines. Every one of those was an absence
+# the rule never measured.
+
+import json
+
+from netauto.checks.builtin import TEXT_CONFIG_FAMILIES
+from netauto.drivers.base import platform_family
+
+ACI_EXPORT = json.dumps({"imdata": [{"polUni": {
+    "attributes": {"dn": "uni"},
+    "children": [
+        {"commTelnet": {"attributes": {"adminSt": "disabled"}}},
+        {"commHttp": {"attributes": {"adminSt": "disabled"}}},
+        {"commHttps": {"attributes": {"sslProtocols": "TLSv1.2,TLSv1.3"}}},
+        {"aaaUserEp": {"attributes": {"pwdStrengthCheck": "yes"}}},
+        {"aaaTacacsPlusProvider": {"attributes": {"name": "10.1.1.9"}}},
+        {"aaaPreLoginBanner": {"attributes": {"message": "Authorised users only"}}},
+        {"coopPol": {"attributes": {"name": "default", "type": "strict"}}},
+        {"infraSetPol": {"attributes": {"enforceSubnetCheck": "yes"}}},
+        {"pkiWebTokenData": {"attributes": {"webtokenTimeoutSeconds": "600"}}},
+        {"datetimeNtpProv": {"attributes": {"name": "10.1.1.1"}}},
+        {"syslogRemoteDest": {"attributes": {"host": "10.1.1.2",
+                                             "adminState": "enabled"}}},
+        {"snmpCommunityP": {"attributes": {"name": "s3cret-ro"}}},
+        {"fvTenant": {"attributes": {"name": "Production"}, "children": [
+            {"fvCtx": {"attributes": {"name": "prod-vrf", "pcEnfPref": "enforced"}}},
+        ]}},
+    ],
+}}]})
+
+
+def test_aci_has_its_own_family():
+    assert platform_family("cisco_aci") == "aci"
+    assert platform_family("cisco_nexus_dashboard") == "nexusdashboard"
+    # The NX-OS platforms are still Cisco: a fabric is not a switch, but a
+    # Nexus running NX-OS over either transport genuinely is an IOS-family box.
+    assert platform_family("cisco_nxos") == "cisco"
+    assert platform_family("cisco_nxos_api") == "cisco"
+
+
+def test_no_ios_rule_is_aimed_at_an_aci_fabric():
+    """The IOS rules must not even run, let alone fail, on a policy export."""
+    ios_only = [r for r in BUILTIN.rules if r.families == frozenset({"cisco"})]
+    assert ios_only, "expected some Cisco-only rules"
+    for rule in ios_only:
+        assert not rule.applies_to("aci"), f"{rule.id} still judges ACI"
+
+
+def test_a_hardened_fabric_passes_every_aci_rule():
+    findings = run_ruleset(BUILTIN, "aci-fabric-01", "aci", ACI_EXPORT, {})
+    failed = [f for f in findings if f.status != "pass"]
+    assert not failed, (
+        "a compliant policy export should satisfy every ACI rule, but these "
+        f"did not: {[(f.rule_id, f.detail) for f in failed]}"
+    )
+
+
+def test_the_nested_vrf_is_reached_and_not_just_the_top_level():
+    """fvCtx sits under fvTenant, so a walker that stopped at the top would
+    report a compliant fabric for a VRF it never looked at."""
+    export = json.loads(ACI_EXPORT)
+    tenant = export["imdata"][0]["polUni"]["children"][-1]
+    tenant["fvTenant"]["children"][0]["fvCtx"]["attributes"]["pcEnfPref"] = "unenforced"
+    findings = run_ruleset(BUILTIN, "aci", "aci", json.dumps(export), {})
+    vrf = next(f for f in findings if f.rule_id == "NA-044")
+    assert vrf.status == "fail"
+    assert "unenforced" in vrf.evidence[0]
+
+
+def test_an_empty_export_fails_the_controls_it_cannot_confirm():
+    """Absent evidence is not compliance for a control that must be on.
+
+    An export with nothing in it must not read as a hardened fabric. The
+    must-be-off rules pass -- nothing says telnet is on -- while every
+    must-be-on rule fails, which is the conservative half of the convention.
+    """
+    findings = run_ruleset(BUILTIN, "aci", "aci", '{"imdata": []}', {})
+    by_id = {f.rule_id: f for f in findings}
+    assert by_id["NA-040"].status == "pass"          # nothing enables telnet
+    assert by_id["NA-042"].status == "fail"          # nothing enforces passwords
+    assert by_id["NA-049"].status == "fail"          # no bounded session
+    assert by_id["NA-101"].status == "fail"          # no time source
+
+
+def test_nexus_dashboard_is_judged_by_nothing_it_cannot_answer():
+    """ND's config is cluster state and carries no hardening settings at all.
+
+    Before the families were split it was judged as an IOS device and failed
+    six rules; the vendor-neutral three then failed it for a time source and
+    remote logging its export does not describe either. The honest number of
+    rules for it is zero until it has a ruleset of its own.
+    """
+    nd_cfg = json.dumps({"sites": [{"name": "dc1"}], "nodes": []})
+    findings = run_ruleset(BUILTIN, "nd-01", "nexusdashboard", nd_cfg, {})
+    assert findings == [], (
+        f"Nexus Dashboard was judged by rules it cannot answer: "
+        f"{[f.rule_id for f in findings]}"
+    )
+    assert "nexusdashboard" not in TEXT_CONFIG_FAMILIES

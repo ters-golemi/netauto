@@ -195,8 +195,18 @@ def test_every_offered_platform_is_one_the_guard_knows(platform):
     platform in this dropdown that fell through to a family with a lax
     allowlist would be a way to reach a device without the guard meaning
     anything. Every one of them must refuse a write.
+
+    A family with an empty allowlist refuses everything, reads included --
+    that is ACI and Nexus Dashboard, which have no CLI to reach. Asserting a
+    read succeeds there would be asserting the wrong thing, so the two cases
+    are split and the no-CLI one is held to the stricter bar.
     """
-    assert platform_family(platform) in READ_ALLOW
-    assert assert_read_only("show version", platform)
+    family = platform_family(platform)
+    assert family in READ_ALLOW
+    if READ_ALLOW[family]:
+        assert assert_read_only("show version", platform)
+    else:
+        with pytest.raises(UnsafeCommand):
+            assert_read_only("show version", platform)
     with pytest.raises(UnsafeCommand):
         assert_read_only("configure terminal", platform)

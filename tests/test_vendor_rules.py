@@ -11,6 +11,8 @@ So each rule gets a configuration it should accept and one it should reject.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from netauto.checks.vendor import EXTRA, REFERENCES, VENDOR
@@ -98,11 +100,92 @@ CASES: list[tuple[str, str, str]] = [
 ]
 
 
+# -- ACI, whose configuration is a policy tree -----------------------------
+#
+# The ACI rules read managed objects, not lines, so their cases are policy
+# exports rather than config snippets. _mit() builds the nesting the real
+# export has -- imdata, polUni, children -- because a rule that only worked
+# on a flat object list would pass here and find nothing on a real fabric.
+
+
+def _mit(*objects: dict) -> str:
+    """A policy export carrying these managed objects under polUni."""
+    return json.dumps({"imdata": [{"polUni": {
+        "attributes": {"dn": "uni"},
+        "children": list(objects),
+    }}]})
+
+
+def _mo(cls: str, **attributes: object) -> dict:
+    return {cls: {"attributes": {k: str(v) for k, v in attributes.items()}}}
+
+
+ACI_CASES: list[tuple[str, str, str]] = [
+    ("NA-040",
+     _mit(_mo("commTelnet", adminSt="disabled")),
+     _mit(_mo("commTelnet", adminSt="enabled"))),
+    ("NA-041",
+     _mit(_mo("commHttp", adminSt="disabled")),
+     _mit(_mo("commHttp", adminSt="enabled"))),
+    ("NA-042",
+     _mit(_mo("aaaUserEp", pwdStrengthCheck="yes")),
+     _mit(_mo("aaaUserEp", pwdStrengthCheck="no"))),
+    ("NA-043",
+     _mit(_mo("aaaTacacsPlusProvider", name="10.1.1.9")),
+     _mit(_mo("aaaUserEp", pwdStrengthCheck="yes"))),
+    ("NA-044",
+     _mit(_mo("fvCtx", name="prod", pcEnfPref="enforced")),
+     _mit(_mo("fvCtx", name="lab", pcEnfPref="unenforced"))),
+    ("NA-045",
+     _mit(_mo("coopPol", name="default", type="strict")),
+     _mit(_mo("coopPol", name="default", type="compatible"))),
+    ("NA-046",
+     _mit(_mo("infraSetPol", enforceSubnetCheck="yes")),
+     _mit(_mo("infraSetPol", enforceSubnetCheck="no"))),
+    ("NA-047",
+     _mit(_mo("aaaPreLoginBanner", message="Authorised users only")),
+     _mit(_mo("aaaPreLoginBanner", message=""))),
+    ("NA-048",
+     _mit(_mo("commHttps", sslProtocols="TLSv1.2,TLSv1.3")),
+     _mit(_mo("commHttps", sslProtocols="TLSv1,TLSv1.1,TLSv1.2"))),
+    ("NA-049",
+     _mit(_mo("pkiWebTokenData", webtokenTimeoutSeconds="600")),
+     _mit(_mo("pkiWebTokenData", webtokenTimeoutSeconds="7200"))),
+    # The three vendor-neutral rules, in ACI's spelling rather than a line.
+    ("NA-100",
+     _mit(_mo("snmpCommunityP", name="s3cret-ro")),
+     _mit(_mo("snmpCommunityP", name="public"))),
+    ("NA-101",
+     _mit(_mo("datetimeNtpProv", name="10.1.1.1")),
+     _mit(_mo("fvTenant", name="Production"))),
+    ("NA-102",
+     _mit(_mo("syslogRemoteDest", host="10.1.1.2", adminState="enabled")),
+     _mit(_mo("syslogRemoteDest", host="10.1.1.2", adminState="disabled"))),
+]
+
+CASES += ACI_CASES
+
+
 def test_every_new_rule_has_a_case():
     """A rule added without a case here is a rule nobody has fired."""
     covered = {rule_id for rule_id, _, _ in CASES}
     missing = {r.id for r in EXTRA} - covered
     assert not missing, f"vendor rules with no test case: {sorted(missing)}"
+
+
+def test_every_aci_rule_has_a_case():
+    """The same bar for the ACI family, which has no text config to eyeball.
+
+    A policy-model rule is easier to get silently wrong than a line match: a
+    mistyped class name finds nothing, which looks exactly like a compliant
+    fabric. Both directions are the only thing that tells them apart.
+    """
+    covered = {rule_id for rule_id, _, _ in CASES}
+    aci_rules = {r.id for r in VENDOR.rules if r.applies_to("aci")}
+    assert aci_rules, "no rules apply to the aci family"
+    assert not aci_rules - covered, (
+        f"ACI rules with no test case: {sorted(aci_rules - covered)}"
+    )
 
 
 @pytest.mark.parametrize("rule_id,good,_bad", [(r, g, b) for r, g, b in CASES])

@@ -212,13 +212,15 @@ def test_the_platform_table_lists_exactly_the_platforms_that_have_drivers():
     )
 
 
-def test_no_document_pins_a_platform_count():
-    """The same rule as the test count, for the same reason: it went stale.
+def test_no_document_pins_a_platform_or_rule_count():
+    """The same rule as the test count, for the same reason: they went stale.
 
-    "The 12 platform strings" survived the commit that made it 13. Say what
-    the tool returns, or point at the table, rather than counting.
+    "The 12 platform strings" survived the commit that made it 13, and "15
+    rules ... adds 15 more ... all 30" survived the one that made them 25, 15
+    and 40. Say what the tool returns, or point at the table, rather than
+    counting.
     """
-    pattern = re.compile(r"\b\d{1,3}\s+(platform|driver)s?\b", re.I)
+    pattern = re.compile(r"\b\d{1,3}\s+(platform|driver|rule)s?\b", re.I)
     for doc in (README, INSTALL):
         found = pattern.findall(doc.read_text())
         assert not found, (

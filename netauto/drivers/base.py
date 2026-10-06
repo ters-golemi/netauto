@@ -30,6 +30,13 @@ READ_ALLOW: dict[str, tuple[str, ...]] = {
                  r"test\s+(security-policy-match|nat-policy-match)\b",
                  r"test\s+routing\s+fib-lookup\b"),
     "generic": (r"show\b", r"display\b", r"get\b", r"ping\b", r"traceroute\b"),
+    # The two Cisco controllers have no CLI at all. Their drivers refuse every
+    # command before the guard is reached, and an empty allowlist means the
+    # guard refuses as well rather than trusting them to. Defence in depth
+    # here is cheap: a future driver that grew a CLI transport by accident
+    # would still be unable to send anything.
+    "aci": (),
+    "nexusdashboard": (),
 }
 
 # Rejected even if something above matched. Ordering never rescues these.
@@ -64,6 +71,15 @@ def platform_family(platform: str) -> str:
         return "juniper"
     if "aruba" in p or "procurve" in p or "aoscx" in p:
         return "aruba"
+    # The Cisco controllers are tested before the Cisco fallback below. Both
+    # platform strings begin with "cisco" and neither speaks IOS: an ACI
+    # fabric judged by IOS rules fails six of them for things it has no
+    # concept of -- an enable secret, an exec-timeout, a VTY line -- so the
+    # configuration language, not the vendor, decides the family.
+    if p == "cisco_aci":
+        return "aci"
+    if p == "cisco_nexus_dashboard":
+        return "nexusdashboard"
     if p.startswith(("cisco", "arista")) or "nxos" in p or "ios" in p:
         return "cisco"
     return "generic"
@@ -90,6 +106,12 @@ def assert_read_only(command: str, platform: str) -> str:
         )
     family = platform_family(platform)
     allowed = READ_ALLOW.get(family, READ_ALLOW["generic"])
+    if not allowed:
+        raise UnsafeCommand(
+            f"{family!r} platforms have no CLI through netauto, so no command is "
+            f"permitted on {platform!r}. Read their state with facts and config "
+            f"instead."
+        )
     if not any(re.match(pattern, cmd, re.IGNORECASE) for pattern in allowed):
         raise UnsafeCommand(
             f"Command {command!r} is not on the read-only allowlist for {family!r} "
