@@ -228,7 +228,14 @@ COMMANDS: dict[str, tuple[str, ...]] = {
     "aruba_aoscx": (),
     "aruba_central": (),
     "meraki": (),
+    "cisco_aci": (),
+    "cisco_nexus_dashboard": (),
 }
+
+# NX-API reaches the same CLI as SSH does, so the command set is the same one
+# rather than a copy -- a command added for one transport must not silently
+# miss the other.
+COMMANDS["cisco_nxos_api"] = COMMANDS["cisco_nxos"]
 
 #: Why a platform has no command set, shown in the report instead of a blank.
 NO_CLI_REASON: dict[str, str] = {
@@ -244,6 +251,17 @@ NO_CLI_REASON: dict[str, str] = {
     "meraki": (
         "Meraki devices have no CLI; everything is the Dashboard API. The "
         "workflow reads network and device state instead."
+    ),
+    "cisco_aci": (
+        "An ACI entry is a fabric reached through its APIC, and the driver "
+        "speaks the REST API. The workflow reads the policy model and the "
+        "fabric node inventory instead. For a shell on one leaf or spine, add "
+        "a cisco_nxos entry for that switch."
+    ),
+    "cisco_nexus_dashboard": (
+        "Nexus Dashboard is a management platform, not a network device, and "
+        "has no CLI. The workflow reads the cluster's onboarded sites and "
+        "nodes instead."
     ),
 }
 

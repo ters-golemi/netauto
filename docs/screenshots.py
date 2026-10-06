@@ -39,8 +39,8 @@ WIDTH = 1180          # the app's own .shell max-width; the layout is built for 
 SCALE = 2             # device pixel ratio
 TALL = 5200           # capture window; the image is cropped back to the content
 
-#: Pages with no natural end. Workflows lists three pipelines for each of the
-#: twelve platforms, so the document is metres long and a full-height capture
+#: Pages with no natural end. Workflows lists three pipelines for every
+#: supported platform, so the document is metres long and a full-height capture
 #: is unreadable at README width. Cropping says the same thing the page's own
 #: first screen says, which is what the caption describes.
 MAX_CSS_HEIGHT: dict[str, int] = {"workflows": 1200, "lab-audit": 1580}

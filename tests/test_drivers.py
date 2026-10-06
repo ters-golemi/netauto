@@ -6,11 +6,13 @@ verbatim from real equipment -- the README's standing caveat is that no
 driver's parsing had met real gear, and this is where that starts to change.
 """
 
+import pytest
 from ntc_templates.parse import parse_output
 
 from netauto.config import Settings
 from netauto.drivers import get_driver_class
 from netauto.drivers.netmiko_driver import FortinetCliDriver, PanOsDriver
+from netauto.errors import DriverError
 from netauto.inventory import Device
 
 
@@ -212,3 +214,274 @@ def test_panos_is_registered_with_every_read():
     assert cls is PanOsDriver
     assert {"facts", "config", "command", "neighbors"} <= cls.capabilities
     assert "upgrade" not in cls.capabilities
+
+
+# -- Cisco ACI -------------------------------------------------------------
+#
+# The APIC wraps every answer the same way -- imdata, a class name, an
+# attributes dict -- so the unwrapping and the summarising are pure functions
+# of that payload and test without a fabric. The attribute names below are the
+# APIC's own; a typo in one is a driver that returns None for a real field,
+# which is exactly what these pin down.
+
+from netauto.drivers.aci_driver import (  # noqa: E402
+    AciDriver, _attrs, _parse_fabric, _parse_neighbors,
+)
+
+# Shape of /api/class/fabricNode.json on a four-node fabric.
+ACI_NODES = [
+    {"fabricNode": {"attributes": {
+        "id": "1", "name": "apic1", "role": "controller",
+        "model": "APIC-SERVER-M3", "serial": "FCH1234V5XY",
+        "version": "5.2(7f)", "fabricSt": "unknown", "adSt": "on"}}},
+    {"fabricNode": {"attributes": {
+        "id": "101", "name": "leaf-101", "role": "leaf",
+        "model": "N9K-C93180YC-EX", "serial": "FDO9876ABCD",
+        "version": "n9000-15.2(7f)", "fabricSt": "active", "adSt": "on"}}},
+    {"fabricNode": {"attributes": {
+        "id": "102", "name": "leaf-102", "role": "leaf",
+        "model": "N9K-C93180YC-EX", "serial": "FDO9876ABCE",
+        "version": "n9000-15.2(7f)", "fabricSt": "inactive", "adSt": "on"}}},
+    {"fabricNode": {"attributes": {
+        "id": "201", "name": "spine-201", "role": "spine",
+        "model": "N9K-C9336PQ", "serial": "FDO5555XXXX",
+        "version": "n9000-15.2(7f)", "fabricSt": "active", "adSt": "on"}}},
+]
+
+
+def test_aci_imdata_is_unwrapped_to_attributes():
+    assert [a["name"] for a in _attrs(ACI_NODES, "fabricNode")] == [
+        "apic1", "leaf-101", "leaf-102", "spine-201"
+    ]
+
+
+def test_aci_class_filter_excludes_other_classes():
+    """A class query can return more than one class; only the asked-for one counts."""
+    mixed = ACI_NODES + [{"fvTenant": {"attributes": {"name": "common"}}}]
+    assert len(_attrs(mixed, "fabricNode")) == 4
+    assert len(_attrs(mixed, "fvTenant")) == 1
+    assert len(_attrs(mixed)) == 5
+
+
+def test_aci_malformed_imdata_entries_are_skipped():
+    """A bare string or a class with no attributes must not raise."""
+    assert _attrs(["nonsense", {"fabricNode": {}}, {"fabricNode": {"attributes": 7}}]) == []
+    assert _attrs([]) == [] and _attrs(None) == []
+
+
+def test_aci_fabric_summary_counts_roles_and_finds_the_apic_version():
+    f = _parse_fabric(_attrs(ACI_NODES, "fabricNode"))
+    assert f["node_roles"] == {"controller": 1, "leaf": 2, "spine": 1}
+    assert f["node_count"] == 4
+    assert f["apic_version"] == "5.2(7f)"
+
+
+def test_aci_summary_reports_a_switch_that_left_the_fabric():
+    """fabricSt is how a decommissioned leaf shows up, and it must be surfaced."""
+    f = _parse_fabric(_attrs(ACI_NODES, "fabricNode"))
+    assert f["nodes_not_active"] == ["leaf-102=inactive"]
+
+
+def test_aci_controller_fabric_state_is_not_read_as_a_fault():
+    """A controller reports fabricSt "unknown" normally; it is not an alarm."""
+    only_apic = _parse_fabric(_attrs(ACI_NODES[:1], "fabricNode"))
+    assert only_apic["nodes_not_active"] == []
+
+
+def test_aci_node_with_an_unexpected_role_is_still_counted():
+    odd = [{"fabricNode": {"attributes": {"id": "9", "name": "x", "role": "tier-2-leaf"}}}]
+    assert _parse_fabric(_attrs(odd, "fabricNode"))["node_roles"] == {"tier-2-leaf": 1}
+
+
+def test_aci_neighbours_take_the_local_end_from_the_dn():
+    """lldpAdjEp carries the remote end only; the local node and port are in the dn."""
+    adj = [{"lldpAdjEp": {"attributes": {
+        "dn": "topology/pod-1/node-101/sys/lldp/inst/if-[eth1/1]/adj-1",
+        "sysName": "core-sw-01", "portIdV": "Ethernet1/5",
+        "sysDesc": "Cisco NX-OS", "chassisIdV": "00:11:22:33:44:55"}}}]
+    assert _parse_neighbors(_attrs(adj, "lldpAdjEp")) == [{
+        "local_port": "node-101/eth1/1",
+        "remote_host": "core-sw-01",
+        "remote_port": "Ethernet1/5",
+        "remote_description": "Cisco NX-OS",
+        "remote_chassis_id": "00:11:22:33:44:55",
+    }]
+
+
+def test_aci_adjacency_without_a_local_port_is_dropped():
+    """A link with no local end cannot be drawn, so it is not reported as one."""
+    adj = [{"lldpAdjEp": {"attributes": {
+        "dn": "topology/pod-1/node-999/sys/lldp/inst/adj-9", "sysName": "nowhere"}}}]
+    assert _parse_neighbors(_attrs(adj, "lldpAdjEp")) == []
+
+
+def test_aci_neighbour_falls_back_to_the_chassis_id_for_a_nameless_peer():
+    adj = [{"lldpAdjEp": {"attributes": {
+        "dn": "topology/pod-1/node-103/sys/lldp/inst/if-[eth1/9]/adj-1",
+        "chassisIdV": "aa:bb:cc:dd:ee:ff", "portDesc": "uplink"}}}]
+    n = _parse_neighbors(_attrs(adj, "lldpAdjEp"))[0]
+    assert n["remote_host"] == "aa:bb:cc:dd:ee:ff"
+    assert n["remote_port"] == "uplink"
+
+
+def test_aci_is_registered_as_a_fabric_that_can_be_mapped():
+    cls = get_driver_class("cisco_aci")
+    assert cls is AciDriver
+    # neighbors is the interesting one: one APIC call stands in for a session
+    # per leaf, which is what makes net_topology usable on a fabric.
+    assert {"facts", "config", "devices", "neighbors"} <= cls.capabilities
+    assert "command" not in cls.capabilities
+    assert "upgrade" not in cls.capabilities
+
+
+def test_aci_refuses_a_command_and_says_where_to_go_instead():
+    d = AciDriver(Device(name="aci", platform="cisco_aci", host="10.0.0.1"),
+                  Settings(inventory_path="unused"))
+    with pytest.raises(DriverError, match="cisco_nxos"):
+        d.run_read("show version")
+
+
+def test_aci_rejects_a_config_kind_the_fabric_does_not_have():
+    d = AciDriver(Device(name="aci", platform="cisco_aci", host="10.0.0.1"),
+                  Settings(inventory_path="unused"))
+    with pytest.raises(DriverError, match="policy is the configuration"):
+        d.get_config("startup")
+
+
+def test_aci_without_a_host_or_base_url_says_so_before_connecting():
+    d = AciDriver(Device(name="aci", platform="cisco_aci"),
+                  Settings(inventory_path="unused"))
+    with pytest.raises(DriverError, match="no host address"):
+        d._base_url()
+
+
+def test_aci_base_url_prefers_an_explicit_one_and_honours_a_port():
+    settings = Settings(inventory_path="unused")
+    plain = AciDriver(Device(name="a", platform="cisco_aci", host="10.0.0.1"), settings)
+    assert plain._base_url() == "https://10.0.0.1"
+    ported = AciDriver(
+        Device(name="a", platform="cisco_aci", host="10.0.0.1", port=8443), settings)
+    assert ported._base_url() == "https://10.0.0.1:8443"
+    explicit = AciDriver(
+        Device(name="a", platform="cisco_aci", host="10.0.0.1",
+               options={"base_url": "https://apic.example.net/"}), settings)
+    assert explicit._base_url() == "https://apic.example.net"
+
+
+# -- Cisco Nexus Dashboard -------------------------------------------------
+#
+# ND reorganised these payloads twice, so the parsers are deliberately shape
+# tolerant and the tests below are mostly about that tolerance: the same
+# question answered three ways must produce one row shape.
+
+from netauto.drivers.nexus_dashboard_driver import (  # noqa: E402
+    DEFAULT_PATHS, NexusDashboardDriver, _flatten, _format_version, _items,
+    _parse_sites,
+)
+
+ND_SITE = {
+    "meta": {"name": "site-dc1", "modts": "2026-01-01"},
+    "spec": {"name": "dc1", "siteType": "ACI", "host": "10.1.1.1"},
+    "status": {"state": "Up", "siteVersion": "5.2(7f)"},
+}
+
+
+def test_nd_records_are_found_whatever_envelope_they_arrive_in():
+    rows = [{"name": "a"}]
+    assert _items({"items": rows}) == rows
+    assert _items(rows) == rows
+    assert _items({"sites": rows}) == rows
+    assert _items({"somethingNew": rows}) == rows, "an unknown key must still be found"
+
+
+def test_nd_junk_payloads_yield_no_records_rather_than_raising():
+    assert _items("nope") == [] and _items({}) == [] and _items(None) == []
+    assert _items({"items": "not a list"}) == []
+
+
+def test_nd_envelopes_are_flattened_with_status_winning():
+    """spec is what was asked for and status is what is true, so status wins."""
+    flat = _flatten({"spec": {"state": "Up", "name": "dc1"},
+                     "status": {"state": "Down"}})
+    assert flat["state"] == "Down"
+    assert flat["name"] == "dc1"
+
+
+def test_nd_flatten_drops_nested_bodies_rather_than_stringifying_them():
+    flat = _flatten({"spec": {"name": "dc1", "nested": {"deep": 1}, "list": [1, 2]}})
+    assert flat == {"name": "dc1"}
+
+
+def test_nd_version_is_read_from_every_shape_it_ships_in():
+    assert _format_version({"major": 3, "minor": 1, "maintenance": 1, "patch": "d"}) == "3.1.1(d)"
+    assert _format_version({"major": 3, "minor": 1, "maintenance": 1}) == "3.1.1"
+    assert _format_version({"version": "4.2.1"}) == "4.2.1"
+    assert _format_version("3.0.1") == "3.0.1"
+    assert _format_version({}) is None
+    assert _format_version(None) is None
+
+
+def test_nd_sites_read_the_same_across_releases():
+    """An ACI site and an NDFC site, named and stated by different keys."""
+    rows = _parse_sites([ND_SITE, {
+        "spec": {"siteName": "dc2", "type": "NDFC"},
+        "status": {"connectivityStatus": "Down"},
+    }])
+    assert [r["name"] for r in rows] == ["dc1", "dc2"]
+    assert [r["site_type"] for r in rows] == ["ACI", "NDFC"]
+    assert [r["state"] for r in rows] == ["Up", "Down"]
+
+
+def test_nd_every_probed_question_has_at_least_one_candidate_path():
+    for key, paths in DEFAULT_PATHS.items():
+        assert paths, f"{key} has no candidate paths to try"
+        assert all(p.startswith("/") for p in paths), key
+
+
+def test_nd_an_inventory_path_override_is_tried_alone():
+    """Pinning a path must stop the probe guessing others and masking a typo."""
+    d = NexusDashboardDriver(
+        Device(name="nd", platform="cisco_nexus_dashboard", host="10.0.0.1",
+               options={"api_paths": {"sites": "/my/own/sites"}}),
+        Settings(inventory_path="unused"))
+    assert d._candidates("sites") == ("/my/own/sites",)
+    assert d._candidates("nodes") == DEFAULT_PATHS["nodes"]
+
+
+def test_nd_is_registered_as_a_cluster_with_no_cli():
+    cls = get_driver_class("cisco_nexus_dashboard")
+    assert cls is NexusDashboardDriver
+    assert {"facts", "config", "devices"} <= cls.capabilities
+    assert "command" not in cls.capabilities
+    # A cluster knows its sites, not their switches' LLDP tables.
+    assert "neighbors" not in cls.capabilities
+
+
+def test_nd_refuses_a_command_and_points_at_the_fabric_controller():
+    d = NexusDashboardDriver(
+        Device(name="nd", platform="cisco_nexus_dashboard", host="10.0.0.1"),
+        Settings(inventory_path="unused"))
+    with pytest.raises(DriverError, match="cisco_aci"):
+        d.run_read("show version")
+
+
+# -- NX-API ----------------------------------------------------------------
+
+
+def test_nxos_over_nxapi_is_a_separate_platform_from_the_ssh_one():
+    """Two transports to the same switch; neither may shadow the other."""
+    from netauto.drivers import supported_platforms
+
+    assert {"cisco_nxos", "cisco_nxos_api"} <= set(supported_platforms())
+    ssh, api = get_driver_class("cisco_nxos"), get_driver_class("cisco_nxos_api")
+    assert ssh.napalm_name == "nxos_ssh"
+    assert api.napalm_name == "nxos"
+    assert ssh is not api
+
+
+def test_nxapi_keeps_the_cisco_guard_family():
+    """A new platform string that fell through to "generic" would widen the guard."""
+    from netauto.drivers.base import platform_family
+
+    for platform in ("cisco_nxos_api", "cisco_aci", "cisco_nexus_dashboard"):
+        assert platform_family(platform) == "cisco", platform

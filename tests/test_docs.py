@@ -172,3 +172,56 @@ def test_the_generator_and_the_readme_agree_on_which_pages_are_shown():
         f"Add the page to PAGES, or embed the image, so every screenshot in "
         f"the README is one `python docs/screenshots.py` can refresh."
     )
+
+
+# -- the platform table ----------------------------------------------------
+#
+# The README's tool table claimed "The 12 platform strings with drivers" while
+# the registry held 13: the PAN-OS driver was added and the count was not.
+# That is the same drift as the alerts table above, and it reads as an
+# authoritative number, so it is worth a test rather than a convention.
+
+PLATFORM_TABLE_ROW = re.compile(r"^\| (`[a-z0-9_]+`(?:, `[a-z0-9_]+`)*) \| ", re.M)
+
+
+def _documented_platforms() -> set[str]:
+    """Every platform string the README's platforms-and-transports table lists."""
+    section = README.read_text().split("## Platforms and transports", 1)
+    assert len(section) == 2, "the README has no platforms-and-transports section"
+    table = section[1].split("##", 1)[0]
+    return {
+        cell.strip().strip("`")
+        for row in PLATFORM_TABLE_ROW.findall(table)
+        for cell in row.split(",")
+    }
+
+
+def test_the_readme_tabulates_the_platforms():
+    assert len(_documented_platforms()) > 5, "found almost no platforms in the README"
+
+
+def test_the_platform_table_lists_exactly_the_platforms_that_have_drivers():
+    from netauto.drivers import supported_platforms
+
+    documented, real = _documented_platforms(), set(supported_platforms())
+    assert documented == real, (
+        f"the README's platform table lists platforms with no driver "
+        f"({sorted(documented - real)}) and omits ones that have one "
+        f"({sorted(real - documented)}). A platform nobody can find in the "
+        f"README is one nobody will use."
+    )
+
+
+def test_no_document_pins_a_platform_count():
+    """The same rule as the test count, for the same reason: it went stale.
+
+    "The 12 platform strings" survived the commit that made it 13. Say what
+    the tool returns, or point at the table, rather than counting.
+    """
+    pattern = re.compile(r"\b\d{1,3}\s+(platform|driver)s?\b", re.I)
+    for doc in (README, INSTALL):
+        found = pattern.findall(doc.read_text())
+        assert not found, (
+            f"{doc.name} pins a platform count, which goes stale the next time "
+            f"anyone adds a driver: {found}. Point at the table instead."
+        )

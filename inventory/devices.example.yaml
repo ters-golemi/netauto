@@ -18,6 +18,35 @@ devices:
     credentials: DC_FABRIC
     tags: [datacentre, leaf]
 
+  - name: dc-leaf-02
+    platform: cisco_nxos_api     # same switch kind, NX-API instead of SSH
+    host: 10.10.0.22
+    credentials: DC_FABRIC       # needs "feature nxapi" on the switch
+    tags: [datacentre, leaf]
+
+  # --- Cisco controllers -------------------------------------------------
+  # A fabric and a cluster, not boxes. Neither has a CLI, so net_run_show
+  # refuses on both and explains why.
+  - name: aci-fabric-01
+    platform: cisco_aci          # the fabric, reached through its APIC
+    host: 10.10.1.5              # any APIC in the cluster
+    credentials: ACI             # ACI_USERNAME, ACI_PASSWORD
+    verify_tls: false            # APICs usually carry a self-signed cert
+    # login_domain: corp         # omit for the local domain
+    tags: [datacentre, fabric]
+
+  - name: nexus-dashboard-01
+    platform: cisco_nexus_dashboard
+    host: 10.10.1.10
+    credentials: ND              # ND_USERNAME, ND_PASSWORD
+    verify_tls: false
+    login_domain: local
+    # ND moved its platform paths between releases. Pin one per question if
+    # the probe cannot find yours; the error names everything it tried.
+    # api_paths:
+    #   sites: /nexus/infra/api/sitemanagement/v4/sites
+    tags: [datacentre, management]
+
   # --- Juniper -----------------------------------------------------------
   - name: edge-rtr-01
     platform: juniper_junos

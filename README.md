@@ -123,7 +123,7 @@ Four independent layers, because one is not enough:
 | Tool | Does |
 |---|---|
 | `net_list_devices` | Inventory, filterable by tag or platform |
-| `net_supported_platforms` | The 12 platform strings with drivers |
+| `net_supported_platforms` | Every platform string with a driver |
 | `net_device_facts` | Vendor, model, OS version, serial, hostname |
 | `net_get_config` | Running/startup/candidate config as text |
 | `net_run_show` | One allowlisted read-only command |
@@ -514,6 +514,9 @@ number of seconds only if you do want a background sweep as well.
 |---|---|---|
 | `cisco_ios`, `cisco_xe` | SSH CLI | napalm |
 | `cisco_nxos`, `cisco_xr` | SSH CLI | napalm |
+| `cisco_nxos_api` | NX-API | napalm |
+| `cisco_aci` | APIC REST | requests |
+| `cisco_nexus_dashboard` | Platform REST | requests |
 | `arista_eos` | eAPI | napalm |
 | `juniper_junos` | NETCONF | napalm / PyEZ |
 | `aruba_aoscx` | REST | pyaoscx |
@@ -527,6 +530,20 @@ number of seconds only if you do want a background sweep as well.
 Meraki and Aruba Central are cloud tenants, not boxes: an inventory entry is an
 organization or tenant, and neither has a CLI. `net_run_show` refuses on both
 with an explanation rather than a generic failure.
+
+ACI and Nexus Dashboard are controllers, and the same applies for the same
+reason. A `cisco_aci` entry is a fabric reached through its APIC: facts
+describe the fabric, `net_get_config` exports the policy model rather than a
+text configuration, and `net_topology` gets every leaf's LLDP adjacency from
+the one controller instead of a session per switch. A
+`cisco_nexus_dashboard` entry is a cluster, and what it enumerates is the
+fabrics onboarded to it — to read inside one, add an entry for that fabric's
+own controller. Both are on-premises, so unlike the cloud tenants they are
+dialled by address.
+
+`cisco_nxos_api` is the same standalone Nexus switch as `cisco_nxos`, reached
+over NX-API instead of SSH. It runs the identical command set and is the path
+to take where SSH is closed off or structured JSON beats scraped text.
 
 ## Compliance rules
 

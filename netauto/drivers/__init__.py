@@ -39,6 +39,9 @@ REGISTRY: dict[str, Callable[[], type["Driver"]]] = {
     "cisco_ios": _napalm("ios"),
     "cisco_xe": _napalm("ios"),
     "cisco_nxos": _napalm("nxos_ssh"),
+    # The same standalone Nexus over NX-API instead of SSH. Structured JSON
+    # rather than scraped text, and the only path where SSH is closed off.
+    "cisco_nxos_api": _napalm("nxos"),
     "cisco_xr": _napalm("iosxr"),
     "arista_eos": _napalm("eos"),
     # Juniper -- NETCONF via napalm/PyEZ
@@ -47,6 +50,11 @@ REGISTRY: dict[str, Callable[[], type["Driver"]]] = {
     "aruba_aoscx": _module("netauto.drivers.aoscx_driver", "AosCxDriver"),
     "aruba_osswitch": _module("netauto.drivers.netmiko_driver", "ArubaOsSwitchDriver"),
     "aruba_central": _module("netauto.drivers.central_driver", "ArubaCentralDriver"),
+    # Cisco controllers -- a fabric or a cluster, not a box
+    "cisco_aci": _module("netauto.drivers.aci_driver", "AciDriver"),
+    "cisco_nexus_dashboard": _module(
+        "netauto.drivers.nexus_dashboard_driver", "NexusDashboardDriver"
+    ),
     # Cloud-managed
     "meraki": _module("netauto.drivers.meraki_driver", "MerakiDriver"),
     # Fortinet

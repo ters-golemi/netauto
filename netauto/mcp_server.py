@@ -28,9 +28,14 @@ from netauto.session import connect, load_context
 INSTRUCTIONS = """\
 Multi-vendor network automation, read-only.
 
-Covers Cisco IOS/IOS-XE/NX-OS/IOS-XR, Juniper Junos, Arista EOS, HPE Aruba
-(AOS-CX, AOS-Switch, Central), Cisco Meraki, Fortinet FortiOS and Palo Alto
-Networks PAN-OS.
+Covers Cisco IOS/IOS-XE/NX-OS/IOS-XR (NX-OS over SSH or NX-API), Cisco ACI,
+Cisco Nexus Dashboard, Juniper Junos, Arista EOS, HPE Aruba (AOS-CX,
+AOS-Switch, Central), Cisco Meraki, Fortinet FortiOS and Palo Alto Networks
+PAN-OS.
+
+An ACI, Nexus Dashboard, Meraki or Aruba Central entry is a controller or
+tenant rather than one box, and none of them has a CLI: net_run_show refuses
+with an explanation. Read their state with net_device_facts and net_get_config.
 
 This server never changes a device. net_config_diff shows what a change would
 do; applying it is a human step. Commands passed to net_run_show are checked
