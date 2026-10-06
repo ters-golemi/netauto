@@ -561,3 +561,35 @@ def test_discover_topologies_ignores_netlab_generated_files(tmp_path):
 
     found = [p.name for p in discover_topologies(tmp_path)]
     assert found == ["topology.yml"], found
+
+
+def test_the_audit_page_explains_a_tenant_with_no_rules(client, monkeypatch):
+    """Zero rules must render as a statement, never as an empty table.
+
+    An empty findings table reads as a clean bill of health. This asserts the
+    reason is on the page and that the table -- whose header alone would imply
+    rules ran -- is not.
+    """
+    from netauto.checks import NO_RULES_REASON
+    from netauto.config import Settings
+    from netauto.inventory import Device, Inventory
+    import netauto.web.app as app_mod
+
+    org = Device(name="meraki-org", platform="meraki")
+    monkeypatch.setattr(app_mod, "load_context",
+                        lambda: (Settings(inventory_path="unused"), Inventory([org])))
+
+    def fake_audit(device, settings, ruleset=None):
+        return {"device": "meraki-org", "platform": "meraki", "facts": {},
+                "config_lines": 3, "summary": {"pass": 0, "fail": 0, "skip": 0},
+                "findings": [], "no_rules_reason": NO_RULES_REASON["meraki"]}
+
+    monkeypatch.setattr(app_mod, "audit_device", fake_audit)
+    _login(client)
+    page = client.get("/audit?device=meraki-org").text
+    assert "No rules apply" in page
+    assert "an organization" in page
+    assert "An empty table" in page
+    assert "<th>Severity</th>" not in page, (
+        "the findings table rendered for a device nothing judged"
+    )

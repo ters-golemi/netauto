@@ -2,7 +2,7 @@
 
 import pytest
 
-from netauto.drivers.base import assert_read_only, platform_family
+from netauto.drivers.base import READ_ALLOW, assert_read_only, platform_family
 from netauto.errors import UnsafeCommand
 
 
@@ -95,10 +95,38 @@ def test_empty_rejected():
 
 @pytest.mark.parametrize("platform,expected", [
     ("cisco_ios", "cisco"), ("cisco_nxos", "cisco"), ("arista_eos", "cisco"),
+    ("cisco_nxos_api", "cisco"),
     ("juniper_junos", "juniper"), ("aruba_aoscx", "aruba"),
     ("aruba_osswitch", "aruba"), ("fortinet_fortios", "fortinet"),
     ("paloalto_panos", "paloalto"),
-    ("meraki", "generic"),
+    # Controllers and tenants, each its own family. Three of these four
+    # strings name a vendor whose switch syntax they do not speak, and each
+    # was once claimed by that vendor's family and judged by its rules:
+    # meraki was "generic", aruba_central was "aruba", and both Cisco
+    # controllers were "cisco".
+    ("meraki", "meraki"),
+    ("aruba_central", "arubacentral"),
+    ("cisco_aci", "aci"),
+    ("cisco_nexus_dashboard", "nexusdashboard"),
 ])
 def test_platform_family(platform, expected):
     assert platform_family(platform) == expected
+
+
+def test_no_platform_falls_through_to_a_family_by_accident():
+    """Every platform resolves to a family the guard has an entry for.
+
+    platform_family ends in a "generic" fallback, which exists for a platform
+    string nobody has classified yet. A shipped platform reaching it is a bug
+    -- that is how meraki ended up policed by an allowlist written for
+    switches it has no way to send a command to.
+    """
+    from netauto.drivers import supported_platforms
+
+    for platform in supported_platforms():
+        family = platform_family(platform)
+        assert family != "generic", (
+            f"{platform} falls through to the generic family. Give it a "
+            f"family of its own in CONTROLLER_FAMILIES or a vendor test."
+        )
+        assert family in READ_ALLOW, f"{platform} -> {family} is unknown to the guard"

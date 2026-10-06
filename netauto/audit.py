@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from netauto.checks import BUILTIN, Finding, Ruleset, run_ruleset
+from netauto.checks import BUILTIN, NO_RULES_REASON, Finding, Ruleset, run_ruleset
 from netauto.config import Settings
 from netauto.drivers.base import platform_family
 from netauto.errors import NetautoError
@@ -41,6 +41,10 @@ def audit_device(
         "config_lines": len(config.splitlines()),
         "summary": summarize(findings),
         "findings": [asdict(f) for f in findings],
+        # Why there is nothing to show, when there is nothing to show. An
+        # empty findings table reads as a clean bill of health; this is what
+        # keeps a tenant with no applicable rules from looking like one.
+        "no_rules_reason": NO_RULES_REASON.get(family, "") if not findings else "",
     }
 
 

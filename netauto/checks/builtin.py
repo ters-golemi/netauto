@@ -23,14 +23,50 @@ ACI = frozenset({"aci"})
 #: Every text-config family, plus ACI now that they know how to find NTP,
 #: syslog and SNMP in a policy export.
 #:
-#: Nexus Dashboard is absent on purpose. Its get_config returns cluster state,
-#: which carries none of these settings, so a verdict on them would be
-#: invented rather than measured -- and before these rules were scoped, an ND
-#: cluster was reported as having no time source and no remote logging on
-#: exactly that non-evidence.
+#: The tenants and the cluster are absent on purpose. What their get_config
+#: returns is state -- an organization's networks and devices, a tenant's
+#: device inventory, a cluster's onboarded sites -- and none of it carries a
+#: time source, a log destination or a community string, so a verdict on those
+#: would be invented rather than measured. Each was reported as failing all
+#: three on exactly that non-evidence before they were scoped out.
 TEXT_CONFIG_FAMILIES = frozenset({
     "cisco", "juniper", "aruba", "fortinet", "paloalto", "generic", "aci",
 })
+
+#: Why a family has no rules, shown where a report would otherwise print an
+#: empty findings table.
+#:
+#: The empty table is the whole reason this exists. A reader takes no rows as
+#: "nothing to report", which is the opposite of what it means: nothing was
+#: judged. The same trap as a documented grep that matches no line and reads
+#: as "no commands were run".
+#:
+#: None of these is a permanent gap. Each would become a real ruleset by
+#: fetching the settings the platform does expose -- organization admins and
+#: SAML for Meraki, audit and authentication policy for Central, cluster NTP
+#: and remote logging for Nexus Dashboard -- which is a driver change first,
+#: since none of those endpoints is read today.
+NO_RULES_REASON: dict[str, str] = {
+    "meraki": (
+        "A Meraki entry is an organization, and its configuration export is "
+        "the organization's networks and devices -- inventory, not settings. "
+        "The hardening rules have nothing to read, so none is applied rather "
+        "than failing the org for settings the export does not describe."
+    ),
+    "arubacentral": (
+        "An Aruba Central entry is a tenant, and its configuration export is "
+        "the Central device inventory -- inventory, not settings. The "
+        "hardening rules have nothing to read, so none is applied rather than "
+        "judging the tenant by AOS-CX switch syntax, which it does not use."
+    ),
+    "nexusdashboard": (
+        "A Nexus Dashboard entry is a cluster, and its configuration export "
+        "is the sites onboarded to it. It is a management platform rather "
+        "than a network device and carries none of these settings, so none of "
+        "the rules is applied. To audit a fabric, add an entry for its own "
+        "controller -- cisco_aci for an ACI site."
+    ),
+}
 
 
 def _absent(*patterns: str, ok: str, bad: str):

@@ -263,3 +263,101 @@ def test_nexus_dashboard_is_judged_by_nothing_it_cannot_answer():
         f"{[f.rule_id for f in findings]}"
     )
     assert "nexusdashboard" not in TEXT_CONFIG_FAMILIES
+
+
+# -- the tenants are not switches ------------------------------------------
+#
+# Same fault as ACI, two more platforms. aruba_central matched the "aruba"
+# test and was judged by AOS-CX switch rules against its device inventory;
+# meraki fell through to "generic" and was failed by the vendor-neutral three
+# for a time source, a log destination and a community string that an
+# inventory export does not describe. Neither was ever measured.
+
+from netauto.checks import NO_RULES_REASON
+
+MERAKI_EXPORT = json.dumps({
+    "networks": [{"id": "N_1", "name": "Branch 1", "productTypes": ["appliance"]}],
+    "devices": [{"serial": "Q2XX-XXXX-XXXX", "model": "MX67", "name": "branch-1-mx"}],
+})
+
+CENTRAL_EXPORT = json.dumps({
+    "devices": [{"serial": "CNXXXXXXXX", "macaddr": "00:11:22:33:44:55",
+                 "model": "6300M", "type": "SWITCH"}],
+    "total": 1,
+})
+
+
+def test_the_tenants_have_their_own_families():
+    assert platform_family("meraki") == "meraki"
+    assert platform_family("aruba_central") == "arubacentral"
+    # The switch platforms that share a vendor name keep theirs.
+    assert platform_family("aruba_aoscx") == "aruba"
+    assert platform_family("aruba_osswitch") == "aruba"
+
+
+def test_no_aruba_switch_rule_is_aimed_at_a_central_tenant():
+    aruba_only = [r for r in BUILTIN.rules if r.families == frozenset({"aruba"})]
+    assert aruba_only, "expected some Aruba-only rules"
+    for rule in aruba_only:
+        assert not rule.applies_to("arubacentral"), f"{rule.id} still judges Central"
+
+
+def test_a_tenant_inventory_export_is_judged_by_nothing():
+    """Zero rules, not three failures invented from an inventory listing."""
+    for family, config in (("meraki", MERAKI_EXPORT),
+                           ("arubacentral", CENTRAL_EXPORT)):
+        findings = run_ruleset(BUILTIN, "tenant", family, config, {})
+        assert findings == [], (
+            f"{family} was judged by rules it cannot answer: "
+            f"{[f.rule_id for f in findings]}"
+        )
+
+
+def test_every_family_without_rules_explains_itself():
+    """A family with no rules must say why, or a report shows an empty table.
+
+    The empty table is the actual danger: no rows reads as a clean bill of
+    health. Any family that stops having rules has to arrive here too.
+    """
+    from netauto.drivers import supported_platforms
+
+    for platform in supported_platforms():
+        family = platform_family(platform)
+        if run_ruleset(BUILTIN, "x", family, "", {}):
+            continue
+        assert NO_RULES_REASON.get(family), (
+            f"{platform} (family {family!r}) has no rules and no explanation, "
+            f"so its audit renders an empty findings table that reads as a pass."
+        )
+
+
+def test_the_reason_reaches_the_report_only_when_there_is_nothing_to_show():
+    """audit_device carries the reason, and drops it when rules did run."""
+    from netauto.audit import audit_device
+    from netauto.config import Settings
+    from netauto.inventory import Device
+
+    class _Driver:
+        def __init__(self, config): self.config = config
+        def __enter__(self): return self
+        def __exit__(self, *exc): return None
+        def facts(self): return {"name": "x"}
+        def get_config(self, kind="running"): return self.config
+
+    import netauto.audit as audit_mod
+
+    original = audit_mod.connect
+    try:
+        audit_mod.connect = lambda dev, settings: _Driver(MERAKI_EXPORT)
+        report = audit_device(Device(name="org", platform="meraki"),
+                              Settings(inventory_path="unused"))
+        assert report["findings"] == []
+        assert "organization" in report["no_rules_reason"]
+
+        audit_mod.connect = lambda dev, settings: _Driver(ACI_EXPORT)
+        report = audit_device(Device(name="fab", platform="cisco_aci"),
+                              Settings(inventory_path="unused"))
+        assert report["findings"], "ACI should have been judged"
+        assert report["no_rules_reason"] == ""
+    finally:
+        audit_mod.connect = original

@@ -32,6 +32,11 @@
   {% if r.error %}
     <div class="alert block"><strong>Not audited.</strong><p>{{ r.error }}</p>
       <p class="note">An unreachable device is not a passing device.</p></div>
+  {% elif r.no_rules_reason %}
+    <div class="alert block"><strong>No rules apply.</strong>
+      <p>{{ r.no_rules_reason }}</p>
+      <p class="note">No rules ran, so this is not a pass. An empty table
+        would have read as one.</p></div>
   {% else %}
     <div class="tablewrap">
     <table class="data grid">

@@ -30,13 +30,35 @@ READ_ALLOW: dict[str, tuple[str, ...]] = {
                  r"test\s+(security-policy-match|nat-policy-match)\b",
                  r"test\s+routing\s+fib-lookup\b"),
     "generic": (r"show\b", r"display\b", r"get\b", r"ping\b", r"traceroute\b"),
-    # The two Cisco controllers have no CLI at all. Their drivers refuse every
-    # command before the guard is reached, and an empty allowlist means the
-    # guard refuses as well rather than trusting them to. Defence in depth
+    # The controllers and tenants have no CLI at all. Their drivers refuse
+    # every command before the guard is reached, and an empty allowlist means
+    # the guard refuses as well rather than trusting them to. Defence in depth
     # here is cheap: a future driver that grew a CLI transport by accident
     # would still be unable to send anything.
     "aci": (),
     "nexusdashboard": (),
+    "meraki": (),
+    "arubacentral": (),
+}
+
+#: A controller or tenant rather than a box, mapped to its own family.
+#:
+#: Matched exactly, and before the vendor tests in platform_family, because
+#: three of these four strings would otherwise be claimed by a family whose
+#: syntax they do not speak -- aruba_central by the "aruba" test, the two
+#: Cisco controllers by the "cisco" one -- and judged by rules written for
+#: switches. That is not hypothetical: it is what each of them did.
+#:
+#: Having a family of their own is not the same as having rules. ACI has a
+#: real ruleset because its policy export is its configuration. The other
+#: three export state -- a tenant's device inventory, a cluster's onboarded
+#: sites -- which carries no settings to judge, and checks.NO_RULES_REASON
+#: says so where a report would otherwise show an empty table.
+CONTROLLER_FAMILIES: dict[str, str] = {
+    "cisco_aci": "aci",
+    "cisco_nexus_dashboard": "nexusdashboard",
+    "meraki": "meraki",
+    "aruba_central": "arubacentral",
 }
 
 # Rejected even if something above matched. Ordering never rescues these.
@@ -60,9 +82,17 @@ def platform_family(platform: str) -> str:
 
     Order matters. The Cisco test matches a bare "ios" substring, which also
     appears inside "fortinet_fortios" -- so the specific vendors are checked
-    first and Cisco is the fallback among CLI platforms.
+    first and Cisco is the fallback among CLI platforms. CONTROLLER_FAMILIES
+    is consulted before any of them, because a controller's platform string
+    often names a vendor whose switch syntax it does not speak.
+
+    The family is the configuration language, not the vendor. Two platforms
+    from one vendor belong to different families when they are configured
+    differently, which is why a Nexus is "cisco" and an ACI fabric is not.
     """
     p = platform.lower()
+    if p in CONTROLLER_FAMILIES:
+        return CONTROLLER_FAMILIES[p]
     if "forti" in p:
         return "fortinet"
     if "palo" in p or "panos" in p:
@@ -71,15 +101,6 @@ def platform_family(platform: str) -> str:
         return "juniper"
     if "aruba" in p or "procurve" in p or "aoscx" in p:
         return "aruba"
-    # The Cisco controllers are tested before the Cisco fallback below. Both
-    # platform strings begin with "cisco" and neither speaks IOS: an ACI
-    # fabric judged by IOS rules fails six of them for things it has no
-    # concept of -- an enable secret, an exec-timeout, a VTY line -- so the
-    # configuration language, not the vendor, decides the family.
-    if p == "cisco_aci":
-        return "aci"
-    if p == "cisco_nexus_dashboard":
-        return "nexusdashboard"
     if p.startswith(("cisco", "arista")) or "nxos" in p or "ios" in p:
         return "cisco"
     return "generic"

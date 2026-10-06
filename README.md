@@ -584,9 +584,26 @@ when nothing says it is, because an export taken with
 missing object means "not configured here", which for a security control is
 the thing worth reporting.
 
-Nexus Dashboard gets no rules at all, deliberately. Its configuration export
-is cluster state and carries none of these settings, so every verdict would be
-invented rather than measured.
+### The tenants and the cluster get no rules, deliberately
+
+Meraki, Aruba Central and Nexus Dashboard each have a family of their own and
+no rules in it. What their configuration export returns is state — an
+organization's networks and devices, a tenant's device inventory, a cluster's
+onboarded sites — and none of it carries a time source, a log destination or a
+community string. Before they were scoped out, each was failed for all three
+on exactly that non-evidence, and Central was additionally judged by AOS-CX
+switch syntax because its platform string contains "aruba".
+
+Zero rules is reported, not rendered blank: an empty findings table reads as a
+clean bill of health, which is the opposite of what it means. The Audit page
+and `net_audit` carry a `no_rules_reason` instead, naming what the export does
+contain and where to look for the thing you wanted audited.
+
+None of the three is a permanent gap. Each becomes a real ruleset by reading
+the settings the platform does expose — organization admins and SAML for
+Meraki, audit and authentication policy for Central, cluster NTP and remote
+logging for Nexus Dashboard — and that is a driver change first, since none of
+those endpoints is fetched today.
 
 ![The Audit page for one switch: four tiles, then every rule with its severity,
 verdict and the configuration line that decided it — failures sorted to the top,
